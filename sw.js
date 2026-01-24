@@ -1,4 +1,4 @@
-const CACHE_NAME='mcb-cache-v3-nuked-1000000000_v20260126';
+const CACHE_NAME='mcb-cache-v3-nuked-1000000000_v20260126_v20260126b';
 const CACHE="mcb-cache-mcb-build-20260124-1705";
 const ASSETS = [
   "./",
