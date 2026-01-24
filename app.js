@@ -1,4 +1,5 @@
 (async () => {
+(async () => {
 
 
 const BUILD_ID = "mcb-build-20260124-1835";
@@ -4273,5 +4274,7 @@ async
 
 // ==== Force sync secret hardcoded to avoid mismatch
 try{}catch(e){}
+
+})();
 
 })();
