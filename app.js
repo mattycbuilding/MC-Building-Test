@@ -1234,7 +1234,7 @@ async function fetchJSON(url, body){
   }
 
   try{
-    text = await res.text();
+    text = await (res.text());
   }catch(e){
     text = "";
   }
@@ -2146,22 +2146,6 @@ function bindWorkerSettingsUI(){
   };
   if(add) add.onclick = ()=> openWorkerEditModal({ id:"", name:"", pin:"", isAdmin:false, perms:_defaultPermsAll() });
   _renderWorkerList();
-
-// Global delegation for Worker Management buttons (prevents missing onclick wiring after re-renders)
-(function(){
-  if(window.__WM_DELEGATE__) return;
-  window.__WM_DELEGATE__ = true;
-  
-    const txt = await res.text();
-    alert("GET " + res.status + "\n" + txt.slice(0, 500));
-  }catch(e){
-    alert("Test failed: " + (e && e.message ? e.message : String(e)));
-  }finally{
-    refreshStatus();
-  }
-};
-}
-
 
 // ----------------- Demo data -----------------
 function loadDemo(){
@@ -4251,7 +4235,7 @@ function initNavMenu(){
         };
 
     const res = await fetch(url, init);
-    const txt = await res.text();
+    const txt = await (res.text());
     let data;
     try { data = JSON.parse(txt); } catch(e) { data = { ok:false, error:'Non-JSON response', raw: txt }; }
     if (!data || data.ok === false) {
