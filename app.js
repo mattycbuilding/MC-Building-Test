@@ -3168,7 +3168,7 @@ function openProjectForm(p=null){
   }
 
   const isEdit = !!p;
-  const data = p || { id: uid(), name:"", address:"", clientName:"", clientPhone:"", notes:"", lat:null, lng:null, stage:"Active Build" };
+  const data = p || { id: uid(), name:"", address:"", clientName:"", clientPhone:"", notes:"", googlePhotos:"", googleDocs:"", lat:null, lng:null, stage:"Active Build" };
   showModal(`
     <div class="row space">
       <h2>${isEdit ? "Edit Project" : "New Project"}</h2>
@@ -3194,6 +3194,11 @@ function openProjectForm(p=null){
     </div>
     <label>Notes</label>
     <textarea class="input" id="p_notes" placeholder="Access, hazards, gate code, etc.">${escapeHtml(data.notes||"")}</textarea>
+    <label>Google Photos folder link</label>
+    <input class="input" id="p_googlePhotos" value="${escapeHtml(data.googlePhotos||"")}" placeholder="Paste Google Drive folder link (photos)" />
+    <label>Google Docs folder link</label>
+    <input class="input" id="p_googleDocs" value="${escapeHtml(data.googleDocs||"")}" placeholder="Paste Google Drive folder link (docs)" />
+
     <hr/>
     <div class="row space actionsSticky">
       <button class="btn ${isEdit ? "primary" : "primary"}" id="saveP" type="button">${isEdit ? "Save changes" : "Create project"}</button>
@@ -3222,6 +3227,8 @@ function openProjectForm(p=null){
     data.clientName = $("#p_clientName").value.trim();
     data.clientPhone = $("#p_clientPhone").value.trim();
     data.notes = $("#p_notes").value.trim();
+    data.googlePhotos = $("#p_googlePhotos").value.trim();
+    data.googleDocs = $("#p_googleDocs").value.trim();
     data.updatedAt = new Date().toISOString();
     if(!data.name) alert("Project name required.");
     if(isEdit){
@@ -3281,6 +3288,16 @@ function openWazeForProject(p){
   window.open(url, "_blank");
 }
 
+
+function openExternalUrl(url){
+  try{
+    let u = String(url||"").trim();
+    if(!u) return;
+    if(!/^https?:\/\//i.test(u)) u = "https://" + u;
+    window.open(u, "_blank");
+  }catch(e){}
+}
+
 // ----------------- Project Detail (tabs) -----------------
 function renderProjectDetail(app, params){
   const p = projectById(params.id);
@@ -3319,6 +3336,8 @@ if(!allowedKeys.has(tab)){
         </div>
         <div class="row noPrint">
           <button class="btn" id="driveBtn" type="button">Drive (Waze)</button>
+          ${p.googlePhotos ? `<button class="btn" id="photosFolderBtn" type="button">Photos folder</button>` : ``}
+          ${p.googleDocs ? `<button class="btn" id="docsFolderBtn" type="button">Docs folder</button>` : ``}
           <button class="btn" id="editProjBtn" type="button">Edit</button>
         </div>
       </div>
@@ -3331,7 +3350,9 @@ if(!allowedKeys.has(tab)){
   `;
   $("#driveBtn").onclick = ()=> openWazeForProject(p);
   $("#editProjBtn").onclick = ()=> openProjectForm(p);
-  $$(".tab").forEach(b=>b.onclick = ()=> navTo("project", { id:p.id, tab:b.dataset.tab }));
+    if($("#photosFolderBtn")) $("#photosFolderBtn").onclick = ()=> openExternalUrl(p.googlePhotos);
+  if($("#docsFolderBtn")) $("#docsFolderBtn").onclick = ()=> openExternalUrl(p.googleDocs);
+$$(".tab").forEach(b=>b.onclick = ()=> navTo("project", { id:p.id, tab:b.dataset.tab }));
 
   const wrap = $("#tabContent");
   if(tab==="overview") wrap.innerHTML = projectOverview(p);
@@ -5452,12 +5473,7 @@ function renderSettings(app){
       </div>
 
     <div class="grid two">
-      <div class="card">
-        <div class="h">Google Sync</div>
-        <button id="settingsSyncBtn" type="button" class="btn primary" style="width:100%;margin-top:8px">Sync now</button>
-        <button id="settingsDownloadOnlyBtn" type="button" class="btn" style="width:100%;margin-top:8px">Download only</button>
-        <div id="settingsSyncStatus" class="small" style="margin-top:8px;opacity:.8">Last synced: Never</div>
-      </div>
+      
 
       <div class="card">
         <h2>Appearance</h2>
@@ -5520,13 +5536,6 @@ function renderSettings(app){
 </div>
   `;
 
-  // Google Sync (Settings)
-  if(document.getElementById("settingsSyncBtn")){
-    document.getElementById("settingsSyncStatus").textContent = "Last synced: " + formatLastSync();
-    document.getElementById("settingsSyncBtn").onclick = syncNowSettings;
-    const dlBtn = document.getElementById("settingsDownloadOnlyBtn");
-    if(dlBtn) dlBtn.onclick = downloadOnlySettings;
-  }
   $("#saveSettings").onclick = ()=>{
     settings.theme = $("#set_theme").value;
     settings.companyName = $("#set_company").value.trim() || "Matty Campbell Building";
@@ -5607,94 +5616,9 @@ function loadDemo(){
 }
 
 
-/* ===== SETTINGS SYNC V2 ===== */
-const SYNC_URL = "https://script.google.com/macros/s/AKfycbxv124HyhBW30KW9lCkrj1zs6O2v-o-vx-vX7mkuzmIfP-ZkakalSRXrfTNOXvteMlhxQ/exec";
-const SYNC_KEY = "IsabellaHopeCampbell";
-function getLastSync(){ return localStorage.getItem("mcb_lastSync") || ""; }
-function setLastSync(v){ localStorage.setItem("mcb_lastSync", v || new Date().toISOString()); }
-function formatLastSync(){ const v=getLastSync(); if(!v) return "Never"; const d=new Date(v); return isNaN(d)? "Never" : d.toLocaleString(); }
-
-async function syncNowSettings(){
-  const btn = document.getElementById("settingsSyncBtn");
-  const status = document.getElementById("settingsSyncStatus");
-  try {
-    if(btn) btn.disabled = true;
-    if(btn) btn.textContent = "Syncing…";
-    if(status) status.textContent = "Syncing…";
-
-    await fetch(SYNC_URL, {
-      method:"POST",
-      body:JSON.stringify({
-        key: SYNC_KEY,
-        action:"push",
-        changes:{
-          Projects:state.projects||[],
-          Tasks:state.tasks||[],
-          Diary:state.diary||[],
-          Deliveries:state.deliveries||[],
-          Inspections:state.inspections||[],
-          Variations:state.variations||[],
-          Subbies:state.subbies||[]
-        }
-      })
-    });
-
-    const pull = await fetch(SYNC_URL, {
-      method:"POST",
-      body:JSON.stringify({
-        key: SYNC_KEY,
-        action:"pull",
-        lastSync:getLastSync()
-      })
-    }).then(async r=>{ const t = await r.text(); try { return JSON.parse(t);} catch(e){ throw new Error("Non-JSON response: "+t.slice(0,200)); } });
-
-    if(pull?.data){
-      if(pull.data.Projects) state.projects = mergeById(state.projects, pull.data.Projects);
-      if(pull.data.Tasks) state.tasks = mergeById(state.tasks, pull.data.Tasks);
-      if(pull.data.Diary) state.diary = mergeById(state.diary, pull.data.Diary);
-      if(pull.data.Deliveries) state.deliveries = mergeById(state.deliveries, pull.data.Deliveries);
-      if(pull.data.Inspections) state.inspections = mergeById(state.inspections, pull.data.Inspections);
-      if(pull.data.Variations) state.variations = mergeById(state.variations, pull.data.Variations);
-      if(pull.data.Subbies) state.subbies = mergeById(state.subbies, pull.data.Subbies);
-      await saveState(state);
-    }
-    setLastSync(pull?.serverTime || new Date().toISOString());
-  } catch(e) {
-    console.error(e);
-    alert("Sync failed. Check your Apps Script deployment access (Anyone) and try again.");
-  } finally {
-    if(btn) btn.disabled = false;
-    if(btn) btn.textContent = "Sync now";
-    if(status) status.textContent = "Last synced: " + formatLastSync();
-  }
-}
-/* ===== END SETTINGS SYNC V2 ===== */
 
 
-// ===== SAFE MERGE (prevents data loss) =====
-function mergeById(local = [], remote = []) {
-  const map = new Map();
 
-  (local || []).forEach(item => {
-    if (item && item.id) map.set(item.id, item);
-  });
-
-  (remote || []).forEach(item => {
-    if (!item || !item.id) return;
-    const existing = map.get(item.id);
-    if (!existing) {
-      map.set(item.id, item);
-    } else {
-      const lt = new Date(existing.updatedAt || 0).getTime();
-      const rt = new Date(item.updatedAt || 0).getTime();
-      if(item.deletedAt){ map.set(item.id, item); return; }
-      if(item.deletedAt){ map.set(item.id, item); return; }
-      map.set(item.id, rt > lt ? item : existing);
-    }
-  });
-
-  return Array.from(map.values());
-}
 
 
 /* ===== SUBBIES PROJECTID MIGRATION ===== */
@@ -6360,56 +6284,7 @@ function runHnryDiaryExportSimple(projectId, from, to){
 }
 
 
-async function downloadOnlySettings(){
-  const btn = document.getElementById("settingsDownloadOnlyBtn");
-  const status = document.getElementById("settingsSyncStatus");
-  try{
-    if(btn) btn.disabled = true;
-    if(status) status.textContent = "Downloading…";
 
-    const resp = await fetch(SYNC_URL, {
-      method:"POST",
-      headers: {"Content-Type":"text/plain;charset=utf-8"},
-      body: JSON.stringify({ key: SYNC_KEY, action:"pull",
-        lastSync:null,
-        full:true })
-    });
-
-    const text = await resp.text();
-    let json;
-    try{ json = JSON.parse(text); }
-    catch(e){ throw new Error("Non-JSON response: " + text.slice(0,200)); }
-    if(json.error) throw new Error(json.error);
-
-    const data = json.data || json.payload || json;
-    const pick = (name)=> data?.[name] ?? data?.[name.toLowerCase()] ?? data?.[name.toUpperCase()] ?? null;
-
-    let updated = 0;
-    const p = pick("Projects"); if(Array.isArray(p)){ state.projects = p; updated++; }
-    const t = pick("Tasks"); if(Array.isArray(t)){ state.tasks = t; updated++; }
-    const d = pick("Diary"); if(Array.isArray(d)){ state.diary = d; updated++; }
-    const del = pick("Deliveries"); if(Array.isArray(del)){ state.deliveries = del; updated++; }
-    const ins = pick("Inspections"); if(Array.isArray(ins)){ state.inspections = ins; updated++; }
-    const v = pick("Variations"); if(Array.isArray(v)){ state.variations = v; updated++; }
-    const s = pick("Subbies"); if(Array.isArray(s)){ state.subbies = s; updated++; }
-
-    if(updated === 0){
-      const keys = data ? Object.keys(data).slice(0,60).join(", ") : "(no data object)";
-      throw new Error("Pull returned no tables. Keys: " + keys);
-    }
-
-    await saveState(state);
-    setLastSync(json.serverTime || data.serverTime || new Date().toISOString());
-    alert("Download complete ("+updated+" tables). Reloading…");
-    setTimeout(()=>location.reload(), 120);
-  }catch(err){
-    console.error(err);
-    alert("Download failed: " + (err && err.message ? err.message : err));
-  }finally{
-    if(btn) btn.disabled = false;
-    if(status) status.textContent = "Last synced: " + formatLastSync();
-  }
-}
 function toastSuccess(msg){ toast(msg); }
 function toastError(msg){ toast(msg); }
 function getProgrammeTasksForProject(projectId){ return programmeTasksForProject(projectId); }
