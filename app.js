@@ -5860,15 +5860,31 @@ function formatLastSync(){
 function mergeById(local = [], remote = []){
   const map = new Map();
   (local || []).forEach(item => { if(item && item.id) map.set(item.id, item); });
+
   (remote || []).forEach(item => {
     if(!item || !item.id) return;
     const existing = map.get(item.id);
-    if(!existing){ map.set(item.id, item); return; }
+
+    // If either side is a tombstone, prefer the tombstone (prevents resurrection from clock skew)
+    if(existing && existing.deletedAt && !item.deletedAt){
+      map.set(item.id, existing);
+      return;
+    }
+    if(item.deletedAt){
+      map.set(item.id, item);
+      return;
+    }
+
+    if(!existing){
+      map.set(item.id, item);
+      return;
+    }
+
     const lt = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
     const rt = new Date(item.updatedAt || item.createdAt || 0).getTime();
-    if(item.deletedAt){ map.set(item.id, item); return; }
     map.set(item.id, rt > lt ? item : existing);
   });
+
   return Array.from(map.values());
 }
 
@@ -5927,7 +5943,7 @@ function _buildSyncPayload(){
     Inspections: (state.inspections||[]),
     Leads: (state.leads||[]),
     Subbies: (state.subbies||[]),
-    ProgrammeTasks: (state.tasks||[]),
+    ProgrammeTasks: (state.programmeTasks||[]),
     ProgrammeHistoryStats: (state.programmeHistoryStats||[]),
     Equipment: (state.equipment||[]),
     EquipmentLogs: (state.equipmentLogs||[]),
