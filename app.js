@@ -333,7 +333,7 @@ function showUpdateBanner(onReload){
     document.body.appendChild(el);
   }
   const btn = document.getElementById("updateReloadBtn");
-  if(btn) btn.onclick = ()=>{ try{ onReload && onReload(); }finally{ window.location.reload(); } };
+  if(btn) btn.onclick = async ()=>{ try{ onReload && onReload(); }finally{ window.location.reload(); } };
 }
 
 (function registerServiceWorkerAutoUpdate(){
@@ -597,6 +597,22 @@ if(__loginBtn){
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => [...root.querySelectorAll(sel)];
 const uid = () => Math.random().toString(16).slice(2) + Date.now().toString(16);
+
+// ===== PIN hashing (SHA-256) =====
+async function hashPin(pin){
+  const p = String(pin||"").trim();
+  if(!p) return "";
+  const enc = new TextEncoder().encode(p);
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  const bytes = new Uint8Array(buf);
+  return Array.from(bytes).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+async function verifyWorkerPin(worker, pin){
+  try{
+    const ph = await hashPin(pin);
+    return !!ph && String(worker?.pinHash||"").trim() === ph;
+  }catch(e){ return false; }
+}
 
 const STORE_KEY = "mcb_site_manager_v1_full";
 const SETTINGS_KEY = "mcb_settings_v1";
@@ -963,7 +979,10 @@ const defaultSettings = () => ({
     currentWorkerId: "",
     requirePin: false
   },
-  workers: [] // [{id,name,pin, isAdmin, perms:{module:{view,edit}}}]
+  workers: [], // [{id,name,pinHash,isAdmin,perms:{module:{view,edit}}}]
+
+  // Google Sheets / Apps Script sync (device can override)
+  sync: { url:"", key:"" }
 });
 
 
@@ -1243,7 +1262,7 @@ function ensureWorkerSettings(){
   if(!Array.isArray(settings.workers)) settings.workers = [];
   // Ensure at least one admin exists if worker mode is enabled
   if(settings.workerMode.enabled && settings.workers.length===0){
-    settings.workers.push({ id: uid(), name: "Admin", pin: "", isAdmin:true, blocked:false, perms: _defaultPermsAll(), createdAt:new Date().toISOString() });
+    settings.workers.push({ id: uid(), name: "Admin", pinHash: "", isAdmin:true, blocked:false, perms: _defaultPermsAll(), createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() });
     settings.workerMode.currentWorkerId = settings.workers[0].id;
     saveSettings(settings);
   }
@@ -1253,7 +1272,12 @@ function ensureWorkerSettings(){
     const nw = { ...w };
     if(!nw.id) nw.id = uid();
     if(!nw.name) nw.name = "Worker";
-    if(typeof nw.blocked!=="boolean") nw.blocked = false;
+    
+    if(typeof nw.pinHash !== "string") nw.pinHash = String(nw.pinHash||"");
+    if("pin" in nw) delete nw.pin;
+    if(typeof nw.createdAt !== "string" || !nw.createdAt) nw.createdAt = new Date().toISOString();
+    if(typeof nw.updatedAt !== "string" || !nw.updatedAt) nw.updatedAt = nw.createdAt;
+if(typeof nw.blocked!=="boolean") nw.blocked = false;
     if(nw.isAdmin) nw.perms = _defaultPermsAll();
     nw.perms = nw.perms || {};
     for(const k of MODULE_KEYS){
@@ -1402,7 +1426,7 @@ function openWorkerPicker(opts={}){
   const modal = document.getElementById("modal");
   if(modal){
     modal.querySelectorAll("[data-worker-pick]").forEach(btn=>{
-      btn.onclick = ()=>{
+      btn.onclick = async ()=>{
         const id = btn.getAttribute("data-worker-pick");
         const w = (settings.workers||[]).find(x=>x && x.id===id);
         if(!w) return;
@@ -1410,13 +1434,11 @@ function openWorkerPicker(opts={}){
           alert("This user is blocked.");
           return;
         }
-        if(requirePin && (w.pin||"").trim()){
+        if(requirePin && (w.pinHash||"").trim()){
           const pin = prompt(`Enter PIN for ${w.name}`);
           if(pin === null) return;
-          if(String(pin).trim() !== String(w.pin).trim()){
-            alert("Incorrect PIN.");
-            return;
-          }
+          const ok = await verifyWorkerPin(w, pin);
+          if(!ok){ alert("Incorrect PIN."); return; }
         }
         setCurrentWorker(id);
         closeModal();
@@ -1426,111 +1448,38 @@ function openWorkerPicker(opts={}){
   }
 }
 
-function verifyWorkerModeDeactivationPin(){
-  // Require an Admin PIN (preferred) to disable Worker mode. This prevents a restricted worker
-  // from simply turning Worker mode off and gaining full access.
+async function verifyWorkerModeDeactivationPin(){
+  // Require an Admin PIN (preferred) to disable Worker mode.
+  // This prevents a restricted worker from disabling restrictions.
   ensureWorkerSettings();
   const workers = (settings.workers||[]);
-  const adminsWithPins = workers.filter(w=>w && w.isAdmin && String(w.pin||"" ).trim());
-  if(adminsWithPins.length){
+  const adminHashes = workers
+    .filter(w=>w && w.isAdmin && !w.blocked && String(w.pinHash||"").trim())
+    .map(w=>w.pinHash);
+
+  if(adminHashes.length){
     const pin = prompt("Enter ADMIN PIN to disable Worker mode");
     if(pin === null) return false;
-    const ok = adminsWithPins.some(a=>String(a.pin||"" ).trim() === String(pin).trim());
+    const ph = await hashPin(String(pin).trim());
+    const ok = adminHashes.some(h=>String(h||"").trim() === ph);
     if(!ok) alert("Incorrect PIN.");
     return ok;
   }
-  // Fallback: if no admin PIN is set, allow current worker PIN (if present) so the device is not bricked.
+
+  // Fallback: if the current worker is an Admin with a PIN set, allow that.
   const cw = currentWorker();
-  if(cw && String(cw.pin||"" ).trim()){
-    const pin = prompt(`Enter PIN for  to disable Worker mode`);
+  if(cw && cw.isAdmin && String(cw.pinHash||"").trim()){
+    const pin = prompt(`Enter PIN for ${cw.name} to disable Worker mode`);
     if(pin === null) return false;
-    const ok = String(cw.pin||"" ).trim() === String(pin).trim();
+    const ok = await verifyWorkerPin(cw, pin);
     if(!ok) alert("Incorrect PIN.");
     return ok;
   }
+
   alert("No Admin PIN is set. Set an Admin PIN in Settings → Worker profiles before Worker mode can be disabled.");
   return false;
 }
 
-
-function verifyWorkerModeDeactivationPin(){
-  // Require an Admin PIN (preferred) to disable Worker mode. This prevents a restricted worker
-  // from simply turning Worker mode off and gaining full access.
-  ensureWorkerSettings();
-  const workers = (settings.workers||[]);
-  const adminsWithPins = workers.filter(w=>w && w.isAdmin && String(w.pin||"").trim());
-  if(adminsWithPins.length){
-    const pin = prompt("Enter ADMIN PIN to disable Worker mode");
-    if(pin === null) return false;
-    const ok = adminsWithPins.some(a=>String(a.pin||"").trim() === String(pin).trim());
-    if(!ok) alert("Incorrect PIN.");
-    return ok;
-  }
-  // Fallback: if no admin PIN is set, allow current worker PIN (if present) so the device is not bricked.
-  const cw = currentWorker();
-  if(cw && String(cw.pin||"").trim()){
-    const pin = prompt(`Enter PIN for ${cw.name || "current worker"} to disable Worker mode`);
-    if(pin === null) return false;
-    const ok = String(cw.pin||"").trim() === String(pin).trim();
-    if(!ok) alert("Incorrect PIN.");
-    return ok;
-  }
-  alert("No Admin PIN is set. Set an Admin PIN in Settings → Worker profiles before Worker mode can be disabled.");
-  return false;
-}
-
-function verifyWorkerModeDeactivationPin(){
-  // Require an Admin PIN (preferred) to disable Worker mode. This prevents a restricted worker
-  // from simply turning Worker mode off and gaining full access.
-  ensureWorkerSettings();
-  const workers = (settings.workers||[]);
-  const adminsWithPins = workers.filter(w=>w && w.isAdmin && String(w.pin||"").trim());
-  if(adminsWithPins.length){
-    const pin = prompt("Enter ADMIN PIN to disable Worker mode");
-    if(pin === null) return false;
-    const ok = adminsWithPins.some(a=>String(a.pin||"").trim() === String(pin).trim());
-    if(!ok) alert("Incorrect PIN.");
-    return ok;
-  }
-  // Fallback: if no admin PIN is set, allow current worker PIN (if present) so the device is not bricked.
-  const cw = currentWorker();
-  if(cw && String(cw.pin||"").trim()){
-    const pin = prompt(`Enter PIN for  to disable Worker mode`);
-    if(pin === null) return false;
-    const ok = String(cw.pin||"").trim() === String(pin).trim();
-    if(!ok) alert("Incorrect PIN.");
-    return ok;
-  }
-  alert("No Admin PIN is set. Set an Admin PIN in Settings → Worker profiles before Worker mode can be disabled.");
-  return false;
-}
-
-
-function verifyWorkerModeDeactivationPin(){
-  // Require an Admin PIN (preferred) to disable Worker mode. This prevents a restricted worker
-  // from simply turning Worker mode off and gaining full access.
-  ensureWorkerSettings();
-  const workers = (settings.workers||[]);
-  const adminsWithPins = workers.filter(w=>w && w.isAdmin && String(w.pin||"").trim());
-  if(adminsWithPins.length){
-    const pin = prompt("Enter ADMIN PIN to disable Worker mode");
-    if(pin === null) return false;
-    const ok = adminsWithPins.some(a=>String(a.pin||"").trim() === String(pin).trim());
-    if(!ok) alert("Incorrect PIN.");
-    return ok;
-  }
-  // Fallback: if no admin PIN is set, allow current worker PIN (if present) so the device is not bricked.
-  const cw = currentWorker();
-  if(cw && String(cw.pin||"").trim()){
-    const pin = prompt(`Enter PIN for ${cw.name || "current worker"} to disable Worker mode`);
-    if(pin === null) return false;
-    const ok = String(cw.pin||"").trim() === String(pin).trim();
-    if(!ok) alert("Incorrect PIN.");
-    return ok;
-  }
-  alert("No Admin PIN is set. Set an Admin PIN in Settings → Worker profiles before Worker mode can be disabled.");
-  return false;
-}
 
 function updateNavVisibility(){
   // Footer nav buttons
@@ -1642,7 +1591,7 @@ function _renderWorkerList(){
 function openWorkerEditModal(worker){
   ensureWorkerSettings();
   const isNew = !worker || !worker.id;
-  const w = isNew ? { id: uid(), name:"", pin:"", isAdmin:false, perms:_defaultPermsAll() } : JSON.parse(JSON.stringify(worker));
+  const w = isNew ? { id: uid(), name:"", pinHash:"", isAdmin:false, perms:_defaultPermsAll() } : JSON.parse(JSON.stringify(worker));
   if(w.isAdmin) w.perms = _defaultPermsAll();
   w.perms = w.perms || _defaultPermsAll();
 
@@ -1672,7 +1621,8 @@ function openWorkerEditModal(worker){
     <input class="input" id="wm_name" value="${escapeHtml(w.name||"")}" placeholder="e.g. Ben" />
 
     <label style="margin-top:10px">PIN (optional)</label>
-    <input class="input" id="wm_pin" value="${escapeHtml(w.pin||"")}" placeholder="4 digits" inputmode="numeric" />
+    <input class="input" id="wm_pin" value="" placeholder="Set / change PIN (4 digits)" inputmode="numeric" />
+    <div class="smallmuted">PINs are stored as a secure hash (pinHash). Leave blank to keep existing.</div>
 
     <div class="row" style="gap:10px; align-items:center; margin-top:10px">
       <label class="row" style="gap:8px; align-items:center">
@@ -1740,7 +1690,7 @@ function openWorkerEditModal(worker){
   refreshPermsDisabled();
 
   const saveBtn = document.getElementById("wm_save");
-  if(saveBtn) saveBtn.onclick = ()=>{
+  if(saveBtn) saveBtn.onclick = async ()=>{
     const name = (document.getElementById("wm_name")?.value || "").trim();
     const pin = (document.getElementById("wm_pin")?.value || "").trim();
     const isAdmin = !!(document.getElementById("wm_isAdmin")?.checked);
@@ -1751,7 +1701,17 @@ function openWorkerEditModal(worker){
       return;
     }
 
-    const nw = { ...w, name, pin, isAdmin, blocked };
+    const nw = { ...w, name, isAdmin, blocked };
+    // PIN hashing (store pinHash only)
+    if(pin){
+      try{ nw.pinHash = await hashPin(pin); }
+      catch(e){ alert("Could not hash PIN. Try again."); return; }
+    }else{
+      // If editing and leaving blank, keep existing pinHash.
+      // If new worker and blank, ensure empty.
+      if(isNew) nw.pinHash = "";
+    }
+
     if(isAdmin){
       nw.perms = _defaultPermsAll();
     }else{
@@ -1822,11 +1782,11 @@ function bindWorkerSettingsUI(){
   const en = document.getElementById("wm_enabled");
   const rp = document.getElementById("wm_requirePin");
   const add = document.getElementById("wm_add");
-  if(en) en.onchange = ()=>{
+  if(en) en.onchange = async ()=>{
     settings.workerMode = settings.workerMode || { enabled:false, currentWorkerId:"", requirePin:false };
     const wasEnabled = !!settings.workerMode.enabled;
     if(wasEnabled && !en.checked){
-      if(!verifyWorkerModeDeactivationPin()){
+      if(!(await verifyWorkerModeDeactivationPin())){
         en.checked = true;
         return;
       }
@@ -1852,7 +1812,7 @@ function bindWorkerSettingsUI(){
     settings.workerMode.requirePin = !!rp.checked;
     saveSettings(settings);
   };
-  if(add) add.onclick = ()=> openWorkerEditModal({ id:"", name:"", pin:"", isAdmin:false, perms:_defaultPermsAll() });
+  if(add) add.onclick = ()=> openWorkerEditModal({ id:"", name:"", pinHash:"", isAdmin:false, perms:_defaultPermsAll() });
   _renderWorkerList();
 }
 
@@ -2907,6 +2867,31 @@ if(_themeBtn) _themeBtn.addEventListener("click", ()=>{
   saveSettings(settings);
   applyTheme();
 });
+
+// Header Sync button (global)
+const _syncBtn = document.getElementById("syncBtn");
+if(_syncBtn){
+  const refreshSyncBtnUI = ()=>{
+    const hasCfg = !!(settings.sync && String(settings.sync.url||"").trim() && String(settings.sync.key||"").trim());
+    _syncBtn.textContent = hasCfg ? "Sync" : "Sync setup";
+    _syncBtn.title = hasCfg ? ("Sync now • Last: " + formatLastSync()) : "Set Apps Script URL + Company key in Settings";
+    _syncBtn.classList.toggle("danger", !hasCfg);
+    _syncBtn.disabled = !hasCfg;
+  };
+  refreshSyncBtnUI();
+  // refresh UI when coming back from settings or after sync
+  window.addEventListener("focus", ()=>{ try{ refreshSyncBtnUI(); }catch(e){} });
+  _syncBtn.addEventListener("click", async ()=>{
+    try{
+      _syncBtn.disabled = true;
+      _syncBtn.textContent = "Syncing…";
+      await syncNowAll();
+    }finally{
+      try{ refreshSyncBtnUI(); }catch(e){}
+    }
+  });
+}
+
 
 function doExportAll(){
   const blob = new Blob([JSON.stringify({ state, settings, exportedAt: new Date().toISOString() }, null, 2)], {type:"application/json"});
@@ -5473,6 +5458,20 @@ function renderSettings(app){
       </div>
 
     <div class="grid two">
+
+      <div class="card">
+        <h2>Google Sheets sync</h2>
+        <div class="sub">Sync everything (projects, tasks, diary, variations, deliveries, inspections, H&amp;S, equipment, leads, and worker profiles).</div>
+        <label style="margin-top:10px">Apps Script URL</label>
+        <input class="input" id="sync_url" value="${escapeHtml((settings.sync && settings.sync.url) || "")}" placeholder="https://script.google.com/macros/s/…/exec" />
+        <label>Company key</label>
+        <input class="input" id="sync_key" value="${escapeHtml((settings.sync && settings.sync.key) || "")}" placeholder="Your company key" />
+        <div class="row" style="gap:10px; flex-wrap:wrap; margin-top:10px">
+          <button class="btn primary" id="settingsSyncBtn" type="button">Sync now</button>
+          <button class="btn" id="settingsDownloadOnlyBtn" type="button">Download only</button>
+        </div>
+        <div class="smallmuted" id="settingsSyncStatus" style="margin-top:8px">Last synced: —</div>
+      </div>
       
 
       <div class="card">
@@ -5556,6 +5555,24 @@ function renderSettings(app){
   // Settings page: bind Export/Import buttons
   try{ bindImportExportButtons(); }catch(e){}
   try{ bindWorkerSettingsUI(); }catch(e){}
+
+  // Google Sheets Sync (Settings)
+  try{
+    const u = document.getElementById("sync_url");
+    const k = document.getElementById("sync_key");
+    if(!settings.sync) settings.sync = { url:"", key:"" };
+    if(u) u.onchange = ()=>{ settings.sync.url = u.value.trim(); saveSettings(settings); };
+    if(k) k.onchange = ()=>{ settings.sync.key = k.value.trim(); saveSettings(settings); };
+
+    const btn = document.getElementById("settingsSyncBtn");
+    const dl = document.getElementById("settingsDownloadOnlyBtn");
+    if(btn) btn.onclick = ()=> syncNowAll();
+    if(dl) dl.onclick = ()=> downloadOnlyAll();
+
+    const st = document.getElementById("settingsSyncStatus");
+    if(st) st.textContent = "Last synced: " + formatLastSync();
+  }catch(e){}
+
   setTimeout(()=>{ try{ renderDeletedProjectsUI(); }catch(e){}
     try{
       const lu = document.getElementById('lastUpdateStamp');
@@ -5569,6 +5586,237 @@ function renderSettings(app){
   const _bcu = document.getElementById("btnCheckUpdate");
   if(_bcu) _bcu.onclick = async ()=>{ await checkForUpdate(); alert("Checked for update. If one is available, reload the app."); };
 }
+
+
+
+/* ===== GOOGLE SHEETS SYNC (V3) =====
+   - Push + pull all business tables + worker profiles (pinHash)
+   - Requires an Apps Script endpoint that understands {key, action:"push"/"pull", full:true, payload:{...}}
+*/
+function getLastSync(){ try{ return localStorage.getItem("mcb_last_sync") || ""; }catch(e){ return ""; } }
+function setLastSync(iso){ try{ localStorage.setItem("mcb_last_sync", iso || ""); }catch(e){} }
+function formatLastSync(){
+  const iso = getLastSync();
+  if(!iso) return "—";
+  try{ return fmtNZDateTime(iso); }catch(e){ return iso; }
+}
+
+function mergeById(local = [], remote = []){
+  const map = new Map();
+  (local || []).forEach(item => { if(item && item.id) map.set(item.id, item); });
+  (remote || []).forEach(item => {
+    if(!item || !item.id) return;
+    const existing = map.get(item.id);
+    if(!existing){ map.set(item.id, item); return; }
+    const lt = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+    const rt = new Date(item.updatedAt || item.createdAt || 0).getTime();
+    if(item.deletedAt){ map.set(item.id, item); return; }
+    map.set(item.id, rt > lt ? item : existing);
+  });
+  return Array.from(map.values());
+}
+
+function _cleanSettingsForSync(){
+  // Sync only the settings that should be shared across devices.
+  // Keep device-local fields (currentWorkerId, theme) local.
+  const wm = settings.workerMode || { enabled:false, currentWorkerId:"", requirePin:false };
+  return {
+    companyName: settings.companyName || "Matty Campbell Building",
+    labourRate: Number(settings.labourRate || 0),
+    currency: settings.currency || "NZD",
+    workerMode: { enabled: !!wm.enabled, requirePin: !!wm.requirePin },
+    workers: (settings.workers||[]).map(w=>{
+      if(!w || typeof w!=="object") return null;
+      const nw = { ...w };
+      // Ensure no raw pin leaks
+      if("pin" in nw) delete nw.pin;
+      // Enforce pinHash field
+      nw.pinHash = String(nw.pinHash||"");
+      return nw;
+    }).filter(Boolean)
+  };
+}
+
+function _applySyncedSettings(s){
+  if(!s || typeof s!=="object") return;
+  settings.companyName = s.companyName || settings.companyName;
+  settings.labourRate = Number(s.labourRate ?? settings.labourRate ?? 0);
+  settings.currency = s.currency || settings.currency;
+
+  settings.workerMode = settings.workerMode || { enabled:false, currentWorkerId:"", requirePin:false };
+  settings.workerMode.enabled = !!(s.workerMode && s.workerMode.enabled);
+  settings.workerMode.requirePin = !!(s.workerMode && s.workerMode.requirePin);
+
+  // Merge workers by id
+  const local = (settings.workers||[]).map(w=>{ const nw={...w}; if("pin" in nw) delete nw.pin; return nw; });
+  const remote = (s.workers||[]).map(w=>{ const nw={...w}; if("pin" in nw) delete nw.pin; return nw; });
+  settings.workers = mergeById(local, remote);
+
+  // Keep currentWorkerId local (device choice), but ensure it's valid
+  const cid = settings.workerMode.currentWorkerId || "";
+  if(cid && !settings.workers.some(w=>w && w.id===cid)){
+    settings.workerMode.currentWorkerId = settings.workers[0]?.id || "";
+  }
+  saveSettings(settings);
+  try{ updateNavVisibility(); }catch(e){}
+}
+
+function _buildSyncPayload(){
+  return {
+    Projects: aliveArr(state.projects),
+    Tasks: aliveArr(state.tasks),
+    Diary: aliveArr(state.diary),
+    Variations: aliveArr(state.variations),
+    Deliveries: aliveArr(state.deliveries),
+    Inspections: aliveArr(state.inspections),
+    Leads: aliveArr(state.leads),
+    Subbies: aliveArr(state.subbies),
+    ProgrammeTasks: aliveArr(state.programmeTasks),
+    ProgrammeHistoryStats: aliveArr(state.programmeHistoryStats),
+    Equipment: aliveArr(state.equipment),
+    EquipmentLogs: aliveArr(state.equipmentLogs),
+    Fleet: aliveArr(state.fleet),
+    FleetLogs: aliveArr(state.fleetLogs),
+    HSProfiles: aliveArr(state.hsProfiles),
+    HSInductions: aliveArr(state.hsInductions),
+    HSHazards: aliveArr(state.hsHazards),
+    HSToolboxes: aliveArr(state.hsToolboxes),
+    HSIncidents: aliveArr(state.hsIncidents),
+    ActivityLog: aliveArr(state.activityLog),
+    Settings: _cleanSettingsForSync()
+  };
+}
+
+function _applyPulledData(data){
+  const pick = (name)=> data?.[name] ?? data?.[name.toLowerCase()] ?? data?.[name.toUpperCase()] ?? null;
+
+  const mergeTable = (key, stateKey)=>{
+    const remote = pick(key);
+    if(Array.isArray(remote)){
+      const local = aliveArr(state[stateKey]);
+      state[stateKey] = mergeById(local, remote);
+      return true;
+    }
+    return false;
+  };
+
+  let any = false;
+  any = mergeTable("Projects","projects") || any;
+  any = mergeTable("Tasks","tasks") || any;
+  any = mergeTable("Diary","diary") || any;
+  any = mergeTable("Variations","variations") || any;
+  any = mergeTable("Deliveries","deliveries") || any;
+  any = mergeTable("Inspections","inspections") || any;
+  any = mergeTable("Leads","leads") || any;
+  any = mergeTable("Subbies","subbies") || any;
+  any = mergeTable("ProgrammeTasks","programmeTasks") || any;
+  any = mergeTable("ProgrammeHistoryStats","programmeHistoryStats") || any;
+  any = mergeTable("Equipment","equipment") || any;
+  any = mergeTable("EquipmentLogs","equipmentLogs") || any;
+  any = mergeTable("Fleet","fleet") || any;
+  any = mergeTable("FleetLogs","fleetLogs") || any;
+  any = mergeTable("HSProfiles","hsProfiles") || any;
+  any = mergeTable("HSInductions","hsInductions") || any;
+  any = mergeTable("HSHazards","hsHazards") || any;
+  any = mergeTable("HSToolboxes","hsToolboxes") || any;
+  any = mergeTable("HSIncidents","hsIncidents") || any;
+  any = mergeTable("ActivityLog","activityLog") || any;
+
+  const s = pick("Settings");
+  if(s) { _applySyncedSettings(s); any = true; }
+
+  if(any){
+    saveState(state);
+    try{ applyStateMigrations(); }catch(e){}
+  }
+  return any;
+}
+
+async function _syncRequest(action){
+  if(!settings.sync) settings.sync = { url:"", key:"" };
+  const url = String(settings.sync.url||"").trim();
+  const key = String(settings.sync.key||"").trim();
+  if(!url || !key) throw new Error("Set Apps Script URL and Company key in Settings first.");
+
+  const payload = (action==="push") ? _buildSyncPayload() : null;
+
+  const resp = await fetch(url, {
+    method:"POST",
+    headers: {"Content-Type":"text/plain;charset=utf-8"},
+    body: JSON.stringify({
+      key,
+      action,
+      lastSync: getLastSync() || null,
+      full: true,
+      payload
+    })
+  });
+
+  const text = await resp.text();
+  let json;
+  try{ json = JSON.parse(text); }
+  catch(e){ throw new Error("Non-JSON response: " + text.slice(0,200)); }
+  if(json.error) throw new Error(json.error);
+
+  return json;
+}
+
+async function syncNowAll(){
+  const btn = document.getElementById("settingsSyncBtn");
+  const dl = document.getElementById("settingsDownloadOnlyBtn");
+  const status = document.getElementById("settingsSyncStatus");
+  try{
+    if(btn) btn.disabled = true;
+    if(dl) dl.disabled = true;
+    if(status) status.textContent = "Syncing…";
+
+    // Push local snapshot then pull merged snapshot
+    const pushed = await _syncRequest("push");
+    const pulled = await _syncRequest("pull");
+    const data = pulled.data || pulled.payload || pulled;
+    _applyPulledData(data);
+
+    setLastSync(pulled.serverTime || data.serverTime || new Date().toISOString());
+    if(status) status.textContent = "Last synced: " + formatLastSync();
+    toast("Synced.");
+    render();
+  }catch(err){
+    console.error(err);
+    alert("Sync failed: " + (err && err.message ? err.message : err));
+    if(status) status.textContent = "Sync failed (see alert).";
+  }finally{
+    if(btn) btn.disabled = false;
+    if(dl) dl.disabled = false;
+  }
+}
+
+async function downloadOnlyAll(){
+  const btn = document.getElementById("settingsDownloadOnlyBtn");
+  const syncBtn = document.getElementById("settingsSyncBtn");
+  const status = document.getElementById("settingsSyncStatus");
+  try{
+    if(btn) btn.disabled = true;
+    if(syncBtn) syncBtn.disabled = true;
+    if(status) status.textContent = "Downloading…";
+
+    const pulled = await _syncRequest("pull");
+    const data = pulled.data || pulled.payload || pulled;
+    const changed = _applyPulledData(data);
+
+    setLastSync(pulled.serverTime || data.serverTime || new Date().toISOString());
+    if(status) status.textContent = "Last synced: " + formatLastSync();
+    if(changed) { toast("Downloaded updates."); render(); }
+    else toast("No changes.");
+  }catch(err){
+    console.error(err);
+    alert("Download failed: " + (err && err.message ? err.message : err));
+    if(status) status.textContent = "Download failed (see alert).";
+  }finally{
+    if(btn) btn.disabled = false;
+    if(syncBtn) syncBtn.disabled = false;
+  }
+}
+/* ===== END GOOGLE SHEETS SYNC (V3) ===== */
 
 
 // ----------------- Demo data -----------------

@@ -841,3 +841,16 @@ body{ background: var(--bg) !important; color: var(--text) !important; }
   box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
 }
 .dropdownItem:active{ transform: translateY(1px); }
+
+
+/* Theme fix: ensure modals follow light/dark theme */
+#modalBack .modal, #modal{
+  background: var(--card) !important;
+  color: var(--text) !important;
+}
+#modal label, #modal h1, #modal h2, #modal h3, #modal h4, #modal p, #modal div, #modal span{
+  color: inherit;
+}
+#modal .sub, #modal .smallmuted, #modal th{
+  color: var(--muted) !important;
+}
