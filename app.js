@@ -3776,21 +3776,85 @@ render(); try{renderDeletedProjectsUI();}catch(e){}
   }
   
   if(tab==="programme"){
-    $("#progTpl") && ($("#progTpl").value = (p.programmeTemplateKey || "standard_nz"));
-    $("#progCx") && ($("#progCx").value = (p.programmeComplexity || "Moderate"));
-    $("#progGen") && ($("#progGen").onclick = ()=>{
-      const tpl = $("#progTpl").value;
-      const cx = $("#progCx").value;
-      const sd = $("#progStart").value;
-      p.programmeStartDate = sd || p.programmeStartDate || fmtISO(new Date());
-      generateProgrammeForProject(p, { templateKey: tpl, complexity: cx });
-      render(); try{renderDeletedProjectsUI();}catch(e){}
-    try{
-      const lu = document.getElementById('lastUpdateStamp');
-      if(lu) lu.textContent = getLastUpdateStamp();
-    }catch(e){}
+    ensureCustomProgramme(p);
 
-    });
+    // Set initial control values
+    if($("#progMode")) $("#progMode").value = (p.programmeMode || "template");
+    if($("#progStart")) $("#progStart").value = (p.programmeStartDate || fmtISO(new Date()));
+    if($("#progTpl")) $("#progTpl").value = (p.programmeTemplateKey || "standard_nz");
+    if($("#progCx")) $("#progCx").value = (p.programmeComplexity || "Moderate");
+
+    const refreshProgrammeUI = ()=>{
+      const mode = ($("#progMode") ? $("#progMode").value : (p.programmeMode || "template"));
+      const tplOn = mode === "template";
+      const tpl1 = document.getElementById("tplControls");
+      const tpl2 = document.getElementById("tplControls2");
+      const gen = document.getElementById("progGen");
+      const cc = document.getElementById("customControls");
+      const ed = document.getElementById("customEditor");
+      if(tpl1) tpl1.style.display = tplOn ? "" : "none";
+      if(tpl2) tpl2.style.display = tplOn ? "" : "none";
+      if(gen) gen.style.display = tplOn ? "" : "none";
+      if(cc) cc.style.display = tplOn ? "none" : "";
+      if(ed) ed.style.display = tplOn ? "none" : "";
+      if(!tplOn) renderCustomProgrammeEditor(p);
+    };
+
+    if($("#progMode")) $("#progMode").onchange = ()=>{
+      p.programmeMode = $("#progMode").value;
+      saveProject(p);
+      render();
+    };
+
+    if($("#progStart")) $("#progStart").onchange = ()=>{
+      p.programmeStartDate = ($("#progStart").value || fmtISO(new Date()));
+      saveProject(p);
+      render();
+    };
+
+    if($("#progGen")) $("#progGen").onclick = ()=>{
+      const tpl = $("#progTpl") ? $("#progTpl").value : "standard_nz";
+      const cx = $("#progCx") ? $("#progCx").value : "Moderate";
+      const sd = $("#progStart") ? $("#progStart").value : fmtISO(new Date());
+      p.programmeStartDate = sd || fmtISO(new Date());
+      p.programmeMode = "template";
+      p.programmeTemplateKey = tpl;
+      p.programmeComplexity = cx;
+      generateProgrammeForProject(p, { templateKey: tpl, complexity: cx });
+      saveProject(p);
+      render();
+    };
+
+    if($("#customAddSection")) $("#customAddSection").onclick = ()=>{
+      ensureCustomProgramme(p);
+      p.programmeMode = "custom";
+      p.customProgramme.push({
+        id: uid(),
+        title: "Section",
+        days: 3,
+        startDate: "",
+        manualStart: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      saveProject(p);
+      render();
+    };
+
+    if($("#customAutoFix")) $("#customAutoFix").onclick = ()=>{
+      ensureCustomProgramme(p);
+      // Clear auto sections so they follow consecutively again
+      p.customProgramme = (p.customProgramme||[]).map(s=>{
+        const ns = { ...s };
+        if(!ns.manualStart) ns.startDate = "";
+        ns.updatedAt = new Date().toISOString();
+        return ns;
+      });
+      saveProject(p);
+      render();
+    };
+
+    refreshProgrammeUI();
   }
 if(tab==="variations"){
     $("#addVarProj").onclick = ()=> openVariationForm({ projectId:p.id });
