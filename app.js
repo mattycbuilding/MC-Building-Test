@@ -317,8 +317,8 @@ function showUpdateBanner(onReload){
     el.style.zIndex = "99999";
     el.style.padding = "12px 14px";
     el.style.borderRadius = "14px";
-    el.style.border = "1px solid rgba(255,255,255,0.16)";
-    el.style.background = "rgba(15,22,32,0.92)";
+    el.style.border = "1px solid var(--border)";
+    el.style.background = "var(--toast-bg)";
     el.style.backdropFilter = "blur(10px)";
     el.style.webkitBackdropFilter = "blur(10px)";
     el.style.boxShadow = "0 18px 40px rgba(0,0,0,0.45)";
@@ -328,7 +328,7 @@ function showUpdateBanner(onReload){
           <div style="font-weight:700;letter-spacing:.2px">Update available</div>
           <div style="opacity:.75;font-size:13px">Reload to use the latest version.</div>
         </div>
-        <button id="updateReloadBtn" style="min-height:42px;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,0.18);background:linear-gradient(135deg, rgba(82,132,255,0.95), rgba(157,92,255,0.92));color:rgba(255,255,255,0.95);font-weight:700">Reload</button>
+        <button id="updateReloadBtn" style="min-height:42px;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:linear-gradient(135deg, rgba(82,132,255,0.95), rgba(157,92,255,0.92));color:rgba(255,255,255,0.95);font-weight:700">Reload</button>
       </div>`;
     document.body.appendChild(el);
   }
@@ -1043,7 +1043,7 @@ function renderCustomProgrammeEditor(p){
   const rows = p.customProgramme.map((s,idx)=>{
     const sch = schedule[idx] || {};
     return `
-      <div class="row" style="gap:10px; flex-wrap:wrap; align-items:flex-end; margin:10px 0; padding:10px; border:1px solid rgba(255,255,255,.08); border-radius:14px">
+      <div class="row" style="gap:10px; flex-wrap:wrap; align-items:flex-end; margin:10px 0; padding:10px; border:1px solid var(--border); border-radius:14px">
         <div style="min-width:220px; flex:2">
           <label class="sub">Title</label>
           <input class="input" data-cprog-title="${escapeAttr(s.id)}" value="${escapeAttr(s.title||"")}" />
@@ -1793,7 +1793,7 @@ function openWorkerEditModal(worker){
     const e = w.perms[k]?.edit ? "checked" : "";
     // Settings is usually admin-only; keep it visible but editable.
     return `
-      <div class="row space" style="padding:6px 0; border-bottom:1px solid rgba(255,255,255,.06)">
+      <div class="row space" style="padding:6px 0; border-bottom:1px solid var(--border)">
         <div class="sub">${escapeHtml(nice)}</div>
         <div class="row" style="gap:10px">
           <label class="row" style="gap:6px; align-items:center"><input type="checkbox" data-perm-view="${k}" ${v}/> <span class="sub">View</span></label>
@@ -1845,7 +1845,7 @@ function openWorkerEditModal(worker){
   <div style="margin-top:10px">
     ${PROJECT_TABS.map(([k,label])=>{
       const ck = (w.perms && w.perms.projectTabs && w.perms.projectTabs[k]!==false) ? "checked" : "";
-      return `<label class="row" style="gap:8px; align-items:center; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.06)">
+      return `<label class="row" style="gap:8px; align-items:center; padding:6px 0; border-bottom:1px solid var(--border)">
         <input type="checkbox" data-ptab="${k}" ${ck} ${w.isAdmin ? "disabled":""}/>
         <span class="sub">${label}</span>
       </label>`;
@@ -8081,7 +8081,7 @@ function initNavMenu(){
     const list = document.getElementById("navDropdownList");
     if(list && !list.querySelector('[data-nav="switchWorker"]')){
       const div = document.createElement("div");
-      div.style.cssText = "height:1px;background:rgba(255,255,255,.08);margin:6px 0;";
+      div.style.cssText = "height:1px;background:var(--border);margin:6px 0;";
       const btn2 = document.createElement("button");
       btn2.className = "dropdownItem";
       btn2.type = "button";
