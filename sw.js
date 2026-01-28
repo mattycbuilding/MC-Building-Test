@@ -1,4 +1,4 @@
-const CACHE="mcb-cache-v15-20260123102300";
+const CACHE="mcb-cache-v16-20260128200000";
 const ASSETS = [
   "./",
   "./index.html",

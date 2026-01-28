@@ -1961,7 +1961,8 @@ function openWorkerEditModal(worker){
     if(settings.workerMode.enabled && !settings.workerMode.currentWorkerId){
       settings.workerMode.currentWorkerId = nw.id;
     }
-    saveSettings(settings);
+        nw.updatedAt = new Date().toISOString();
+saveSettings(settings);
     ensureWorkerSettings();
     try{ updateNavVisibility(); }catch(e){}
     closeModal();
@@ -3938,7 +3939,7 @@ if(tab==="variations"){
     });
   }
   if(tab==="reports"){
-    $("#runProjectReport").onclick = ()=> runReportUI(p.id);
+    $("#runProjectReport").onclick = ()=> runReportConfigUI(p.id);
     $("#hnryExportProj").onclick = ()=> runHnryExportUI(p.id);
   }
 }
@@ -5480,7 +5481,102 @@ ${projects.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join
   }
 }
 
-function runReportUI(projectId, from=null, to=null){
+
+function runReportConfigUI(projectId){
+  const p = projectById(projectId);
+  if(!p) return;
+
+  // default: last 7 days, but user can change
+  const rangeFrom = new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+  const rangeTo = new Date().toISOString().slice(0,10);
+
+  const opts = {
+    overview:true,
+    programme:true,
+    tasks:true,
+    diary:true,
+    variations:true,
+    deliveries:true,
+    inspections:true,
+    subbies:true,
+    includeDoneTasks:false
+  };
+
+  const html = `
+    <div class="card">
+      <div class="row space">
+        <h2>Build Report</h2>
+        <div class="sub">${escapeHtml(p.name)} • ${escapeHtml(p.address||"")}</div>
+      </div>
+
+      <div class="grid two" style="margin-top:10px">
+        <div>
+          <label class="sub">From</label>
+          <input class="input" id="repFrom" type="date" value="${escapeAttr(rangeFrom)}"/>
+        </div>
+        <div>
+          <label class="sub">To</label>
+          <input class="input" id="repTo" type="date" value="${escapeAttr(rangeTo)}"/>
+        </div>
+      </div>
+
+      <div class="sub" style="margin-top:12px">Select sections to include</div>
+      <div class="grid two" style="margin-top:8px">
+        ${[
+          ["overview","Project overview"],
+          ["programme","Programme"],
+          ["tasks","Tasks (open)"],
+          ["includeDoneTasks","Include completed tasks"],
+          ["diary","Diary"],
+          ["variations","Variations"],
+          ["deliveries","Deliveries"],
+          ["inspections","Inspections"],
+          ["subbies","Subbies"],
+        ].map(([k,label])=>`
+          <label class="row" style="gap:10px; align-items:center; justify-content:flex-start">
+            <input type="checkbox" id="rep_${k}" ${opts[k] ? "checked":""}/>
+            <span>${escapeHtml(label)}</span>
+          </label>
+        `).join("")}
+      </div>
+
+      <div class="row space noPrint" style="margin-top:14px">
+        <div class="smallmuted">Tip: if you want the full job history, set the date range wide.</div>
+        <div class="row" style="gap:10px">
+          <button class="btn" id="repCancel" type="button">Cancel</button>
+          <button class="btn primary" id="repGo" type="button">Generate</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  showModal(html);
+
+  $("#repCancel").onclick = ()=> closeModal();
+  $("#repGo").onclick = ()=>{
+    const from = ($("#repFrom").value || rangeFrom);
+    const to = ($("#repTo").value || rangeTo);
+
+    const sel = {
+      overview: $("#rep_overview").checked,
+      programme: $("#rep_programme").checked,
+      tasks: $("#rep_tasks").checked,
+      includeDoneTasks: $("#rep_includeDoneTasks").checked,
+      diary: $("#rep_diary").checked,
+      variations: $("#rep_variations").checked,
+      deliveries: $("#rep_deliveries").checked,
+      inspections: $("#rep_inspections").checked,
+      subbies: $("#rep_subbies").checked,
+    };
+
+    closeModal();
+    runReportUI(projectId, from, to, sel);
+  };
+}
+
+function runReportUI(projectId, from=null, to=null, opts=null){
+  opts = opts || { overview:true, programme:true, tasks:true, diary:true, variations:true, deliveries:true, inspections:true, subbies:true, includeDoneTasks:false };
+
   const isAll = projectId === "__ALL__";
   const p = isAll ? null : projectById(projectId);
   if(!isAll && !p) return;
@@ -5506,7 +5602,7 @@ function runReportUI(projectId, from=null, to=null){
 
     <div class="card">
       <div class="row space">
-        <h2>Job Report</h2>
+        <h2>Project Report</h2>
         <div class="row noPrint">
           <button class="btn" id="copyLink" type="button">Copy</button>
           <button class="btn primary" id="printBtn" type="button">Print / Save PDF</button>
@@ -5514,61 +5610,154 @@ function runReportUI(projectId, from=null, to=null){
       </div>
       <div class="sub">${escapeHtml(p.name)} • ${escapeHtml(p.address||"")}<br/>Period: ${dateFmt(rangeFrom)} → ${dateFmt(rangeTo)}</div>
       <hr/>
-      <h2>Diary</h2>
-      ${diary.length ? diary.map(d=>`
-        <div class="item">
-          <div class="row space">
-            <div><strong>${dateFmt(d.date)}</strong> ${d.billable?`<span class="badge ok">Billable</span>`:`<span class="badge">Non‑billable</span>`} ${d.hours?`<span class="badge">⏱ ${escapeHtml(String(d.hours))}h</span>`:""}</div>
-            <div class="smallmuted">${escapeHtml(d.category||"")}</div>
+
+      ${opts.overview ? `
+        <h2>Project overview</h2>
+        <table>
+          <tbody>
+            <tr><th>Stage</th><td>${escapeHtml(p.stage||"")}</td></tr>
+            <tr><th>Status</th><td>${escapeHtml(p.status||"")}</td></tr>
+            <tr><th>Client</th><td>${escapeHtml(p.clientName||"")}</td></tr>
+            <tr><th>Phone</th><td>${escapeHtml(p.clientPhone||"")}</td></tr>
+            <tr><th>Email</th><td>${escapeHtml(p.clientEmail||"")}</td></tr>
+            <tr><th>Notes</th><td>${escapeHtml(p.notes||"")}</td></tr>
+            <tr><th>Google photos</th><td>${escapeHtml(p.googlePhotos||"")}</td></tr>
+            <tr><th>Google docs</th><td>${escapeHtml(p.googleDocs||"")}</td></tr>
+          </tbody>
+        </table>
+        <hr/>
+      ` : ""}
+
+      ${opts.programme ? `
+        <h2>Programme</h2>
+        ${(()=>{
+          try{
+            const mode = p.programmeMode || "template";
+            if(mode==="custom" && Array.isArray(p.customProgramme) && p.customProgramme.length){
+              const sch = computeCustomProgrammeSchedule(p);
+              return `
+                <div class="sub">Custom programme • Start ${escapeHtml(p.programmeStartDate||"")}</div>
+                <table>
+                  <thead><tr><th>Section</th><th>Start</th><th>End</th><th>Days</th></tr></thead>
+                  <tbody>
+                    ${sch.map(s=>`<tr><td>${escapeHtml(s.title||"")}</td><td>${escapeHtml(dateFmt(s.plannedStart||""))}</td><td>${escapeHtml(dateFmt(s.plannedEnd||""))}</td><td>${escapeHtml(String(s.days||""))}</td></tr>`).join("")}
+                  </tbody>
+                </table>
+              `;
+            }else{
+              const pt = alive(state.programmeTasks).filter(t=>t.projectId===p.id && isAlive(t));
+              if(pt.length){
+                return `
+                  <div class="sub">Template programme • Start ${escapeHtml(p.programmeStartDate||"")}</div>
+                  <table>
+                    <thead><tr><th>Phase</th><th>Start</th><th>End</th><th>Days</th></tr></thead>
+                    <tbody>
+                      ${pt.map(t=>`<tr><td>${escapeHtml(t.title||"")}</td><td>${t.plannedStart?escapeHtml(dateFmt(t.plannedStart)):""}</td><td>${t.plannedEnd?escapeHtml(dateFmt(t.plannedEnd)):""}</td><td>${escapeHtml(String(t.totalDays||""))}</td></tr>`).join("")}
+                    </tbody>
+                  </table>
+                `;
+              }
+              return `<div class="sub">No programme items found.</div>`;
+            }
+          }catch(e){
+            return `<div class="sub">Programme could not be rendered.</div>`;
+          }
+        })()}
+        <hr/>
+      ` : ""}
+
+      ${opts.diary ? `
+        <h2>Diary</h2>
+        ${diary.length ? diary.map(d=>`
+          <div class="item">
+            <div class="row space">
+              <div><strong>${dateFmt(d.date)}</strong> ${d.billable?`<span class="badge ok">Billable</span>`:`<span class="badge">Non‑billable</span>`} ${d.hours?`<span class="badge">⏱ ${escapeHtml(String(d.hours))}h</span>`:""}</div>
+              <div class="smallmuted">${escapeHtml(d.category||"")}</div>
+            </div>
+            <div class="meta">${escapeHtml(d.summary||"")}</div>
           </div>
-          <div class="meta">${escapeHtml(d.summary||"")}</div>
-        </div>
-      `).join("") : `<div class="sub">No diary entries in range.</div>`}
+        `).join("") : `<div class="sub">No diary entries in range.</div>`}
+        <hr/>
+      ` : ""}
 
-      <hr/>
-      <h2>Open tasks</h2>
-      ${tasks.filter(t=>t.status!=="Done").length ? `
-        <table>
-          <thead><tr><th>Task</th><th>Status</th><th>Due</th><th>Assigned</th></tr></thead>
-          <tbody>
-            ${tasks.filter(t=>t.status!=="Done").map(t=>{
-              const s = t.assignedSubbieId ? subbieById(t.assignedSubbieId) : null;
-              return `<tr><td>${escapeHtml(t.title)}</td><td>${escapeHtml(t.status||"")}</td><td>${t.dueDate?escapeHtml(dateFmt(t.dueDate)):""}</td><td>${s?escapeHtml(s.name):""}</td></tr>`;
-            }).join("")}
-          </tbody>
-        </table>` : `<div class="sub">No open tasks.</div>`}
+      ${opts.tasks ? `
+        <h2>Tasks</h2>
+        ${(()=>{
+          const open = tasks.filter(t=>t.status!=="Done");
+          const done = tasks.filter(t=>t.status==="Done");
+          const rows = (arr)=>`
+            <table>
+              <thead><tr><th>Task</th><th>Status</th><th>Due</th><th>Assigned</th></tr></thead>
+              <tbody>
+                ${arr.map(t=>{
+                  const s = t.assignedSubbieId ? subbieById(t.assignedSubbieId) : null;
+                  return `<tr><td>${escapeHtml(t.title)}</td><td>${escapeHtml(t.status||"")}</td><td>${t.dueDate?escapeHtml(dateFmt(t.dueDate)):""}</td><td>${s?escapeHtml(s.name):""}</td></tr>`;
+                }).join("")}
+              </tbody>
+            </table>
+          `;
+          let out = open.length ? rows(open) : `<div class="sub">No open tasks.</div>`;
+          if(opts.includeDoneTasks){
+            out += `<div style="height:10px"></div><h3>Completed tasks</h3>` + (done.length ? rows(done) : `<div class="sub">No completed tasks.</div>`);
+          }
+          return out;
+        })()}
+        <hr/>
+      ` : ""}
 
-      <hr/>
-      <h2>Variations</h2>
-      ${vars.length ? `
-        <table>
-          <thead><tr><th>Title</th><th>Status</th><th>Date</th><th>Amount</th></tr></thead>
-          <tbody>
-            ${vars.map(v=>`<tr><td>${escapeHtml(v.title)}</td><td>${escapeHtml(v.status||"")}</td><td>${v.date?escapeHtml(dateFmt(v.date)):""}</td><td>${v.amount?escapeHtml(money(v.amount)):""}</td></tr>`).join("")}
-          </tbody>
-        </table>` : `<div class="sub">No variations in range.</div>`}
+      ${opts.variations ? `
+        <h2>Variations</h2>
+        ${vars.length ? `
+          <table>
+            <thead><tr><th>Title</th><th>Status</th><th>Date</th><th>Amount</th></tr></thead>
+            <tbody>
+              ${vars.map(v=>`<tr><td>${escapeHtml(v.title)}</td><td>${escapeHtml(v.status||"")}</td><td>${v.date?escapeHtml(dateFmt(v.date)):""}</td><td>${v.amount?escapeHtml(money(v.amount)):""}</td></tr>`).join("")}
+            </tbody>
+          </table>` : `<div class="sub">No variations in range.</div>`}
+        <hr/>
+      ` : ""}
 
-      <hr/>
-      <h2>Deliveries</h2>
-      ${delivs.length ? `
-        <table>
-          <thead><tr><th>Supplier</th><th>Date</th><th>Status</th><th>Items</th></tr></thead>
-          <tbody>
-            ${delivs.map(d=>`<tr><td>${escapeHtml(d.supplier||"")}</td><td>${d.date?escapeHtml(dateFmt(d.date)):""}</td><td>${escapeHtml(d.status||"")}</td><td>${escapeHtml((d.items||"").slice(0,120))}</td></tr>`).join("")}
-          </tbody>
-        </table>` : `<div class="sub">No deliveries in range.</div>`}
+      ${opts.deliveries ? `
+        <h2>Deliveries</h2>
+        ${delivs.length ? `
+          <table>
+            <thead><tr><th>Supplier</th><th>Date</th><th>Status</th><th>Items</th></tr></thead>
+            <tbody>
+              ${delivs.map(d=>`<tr><td>${escapeHtml(d.supplier||"")}</td><td>${d.date?escapeHtml(dateFmt(d.date)):""}</td><td>${escapeHtml(d.status||"")}</td><td>${escapeHtml((d.items||"").slice(0,240))}</td></tr>`).join("")}
+            </tbody>
+          </table>` : `<div class="sub">No deliveries in range.</div>`}
+        <hr/>
+      ` : ""}
 
-      <hr/>
-      <h2>Inspections</h2>
-      ${insps.length ? `
-        <table>
-          <thead><tr><th>Type</th><th>Date</th><th>Result</th><th>Notes</th></tr></thead>
-          <tbody>
-            ${insps.map(i=>`<tr><td>${escapeHtml(i.type||"")}</td><td>${i.date?escapeHtml(dateFmt(i.date)):""}</td><td>${escapeHtml(i.result||"")}</td><td>${escapeHtml((i.notes||"").slice(0,120))}</td></tr>`).join("")}
-          </tbody>
-        </table>` : `<div class="sub">No inspections in range.</div>`}
+      ${opts.inspections ? `
+        <h2>Inspections</h2>
+        ${insps.length ? `
+          <table>
+            <thead><tr><th>Type</th><th>Date</th><th>Result</th><th>Notes</th></tr></thead>
+            <tbody>
+              ${insps.map(i=>`<tr><td>${escapeHtml(i.type||"")}</td><td>${i.date?escapeHtml(dateFmt(i.date)):""}</td><td>${escapeHtml(i.result||"")}</td><td>${escapeHtml((i.notes||"").slice(0,240))}</td></tr>`).join("")}
+            </tbody>
+          </table>` : `<div class="sub">No inspections in range.</div>`}
+        <hr/>
+      ` : ""}
 
-      <hr/>
+      ${opts.subbies ? `
+        <h2>Subbies</h2>
+        ${(()=>{
+          const subs = alive(state.subbies).filter(s=>isAlive(s));
+          if(!subs.length) return `<div class="sub">No subbies recorded.</div>`;
+          return `
+            <table>
+              <thead><tr><th>Name</th><th>Trade</th><th>Phone</th><th>Email</th></tr></thead>
+              <tbody>
+                ${subs.map(s=>`<tr><td>${escapeHtml(s.name||"")}</td><td>${escapeHtml(s.trade||"")}</td><td>${escapeHtml(s.phone||"")}</td><td>${escapeHtml(s.email||"")}</td></tr>`).join("")}
+              </tbody>
+            </table>
+          `;
+        })()}
+        <hr/>
+      ` : ""}
+
       <div class="smallmuted">Generated ${new Date().toLocaleString("en-NZ")}</div>
     </div>
   `;
@@ -6046,11 +6235,12 @@ async function syncNowAll(){
     const pushed = await _syncRequest("push");
     const pulled = await _syncRequest("pull");
     const data = pulled.data || pulled.payload || pulled;
+    const workersOnServer = (data && data.Settings && Array.isArray(data.Settings.workers)) ? data.Settings.workers.length : null;
     _applyPulledData(data);
 
     setLastSync(pulled.serverTime || data.serverTime || new Date().toISOString());
     if(status) status.textContent = "Last synced: " + formatLastSync();
-    toast("Synced.");
+    toast("Synced" + (workersOnServer!==null ? (" • Workers: " + workersOnServer) : "") + ".");
     render();
   }catch(err){
     console.error(err);
@@ -6073,12 +6263,13 @@ async function downloadOnlyAll(){
 
     const pulled = await _syncRequest("pull");
     const data = pulled.data || pulled.payload || pulled;
+    const workersOnServer = (data && data.Settings && Array.isArray(data.Settings.workers)) ? data.Settings.workers.length : null;
     const changed = _applyPulledData(data);
 
     setLastSync(pulled.serverTime || data.serverTime || new Date().toISOString());
     if(status) status.textContent = "Last synced: " + formatLastSync();
-    if(changed) { toast("Downloaded updates."); render(); }
-    else toast("No changes.");
+    if(changed) { toast("Downloaded updates" + (workersOnServer!==null ? (" • Workers: " + workersOnServer) : "") + "."); render(); }
+    else toast("No changes" + (workersOnServer!==null ? (" • Workers: " + workersOnServer) : "") + ".");
   }catch(err){
     console.error(err);
     alert("Download failed: " + (err && err.message ? err.message : err));
