@@ -5502,78 +5502,133 @@ function runReportConfigUI(projectId){
     includeDoneTasks:false
   };
 
+  const sections = [
+    ["overview","Project overview"],
+    ["programme","Programme"],
+    ["tasks","Tasks (open)"],
+    ["includeDoneTasks","Include completed tasks"],
+    ["diary","Diary"],
+    ["variations","Variations"],
+    ["deliveries","Deliveries"],
+    ["inspections","Inspections"],
+    ["subbies","Subbies"],
+  ];
+
   const html = `
     <div class="card">
       <div class="row space">
-        <h2>Build Report</h2>
-        <div class="sub">${escapeHtml(p.name)} • ${escapeHtml(p.address||"")}</div>
+        <div>
+          <h2 style="margin:0">Build Report</h2>
+          <div class="sub">${escapeHtml(p.name)} • ${escapeHtml(p.address||"")}</div>
+        </div>
+        <button class="btn" id="repCancel" type="button">Close</button>
       </div>
 
-      <div class="grid two" style="margin-top:10px">
-        <div>
+      <hr/>
+
+      <div class="row space" style="align-items:flex-end; gap:10px; flex-wrap:wrap">
+        <div style="flex:1; min-width:160px">
           <label class="sub">From</label>
           <input class="input" id="repFrom" type="date" value="${escapeAttr(rangeFrom)}"/>
         </div>
-        <div>
+        <div style="flex:1; min-width:160px">
           <label class="sub">To</label>
           <input class="input" id="repTo" type="date" value="${escapeAttr(rangeTo)}"/>
         </div>
+        <div class="row" style="gap:8px; flex-wrap:wrap">
+          <button class="btn sm" id="repLast7" type="button">Last 7 days</button>
+          <button class="btn sm" id="repThisMonth" type="button">This month</button>
+          <button class="btn sm" id="repAllTime" type="button">All time</button>
+        </div>
       </div>
 
-      <div class="sub" style="margin-top:12px">Select sections to include</div>
+      <div class="row space" style="margin-top:14px; align-items:center">
+        <div class="sub">Select sections to include</div>
+        <div class="row" style="gap:10px">
+          <label class="row" style="gap:8px; align-items:center; margin:0">
+            <input type="checkbox" id="rep_all" checked />
+            <span class="sub">All</span>
+          </label>
+          <button class="btn sm" id="repNone" type="button">None</button>
+        </div>
+      </div>
+
       <div class="grid two" style="margin-top:8px">
-        ${[
-          ["overview","Project overview"],
-          ["programme","Programme"],
-          ["tasks","Tasks (open)"],
-          ["includeDoneTasks","Include completed tasks"],
-          ["diary","Diary"],
-          ["variations","Variations"],
-          ["deliveries","Deliveries"],
-          ["inspections","Inspections"],
-          ["subbies","Subbies"],
-        ].map(([k,label])=>`
-          <label class="row" style="gap:10px; align-items:center; justify-content:flex-start">
+        ${sections.map(([k,label])=>`
+          <label class="row" style="gap:10px; align-items:center; justify-content:flex-start; margin:0; font-weight:700">
             <input type="checkbox" id="rep_${k}" ${opts[k] ? "checked":""}/>
             <span>${escapeHtml(label)}</span>
           </label>
         `).join("")}
       </div>
 
-      <div class="row space noPrint" style="margin-top:14px">
-        <div class="smallmuted">Tip: if you want the full job history, set the date range wide.</div>
-        <div class="row" style="gap:10px">
-          <button class="btn" id="repCancel" type="button">Cancel</button>
-          <button class="btn primary" id="repGo" type="button">Generate</button>
-        </div>
+      <hr/>
+
+      <div class="row space noPrint" style="margin-top:10px">
+        <div class="smallmuted">Tip: set a wide date range for full job history.</div>
+        <button class="btn primary" id="repGo" type="button">Generate report</button>
       </div>
     </div>
   `;
 
   showModal(html);
 
+  const setAll = (val)=>{
+    sections.forEach(([k])=>{
+      const el = document.getElementById("rep_"+k);
+      if(el) el.checked = !!val;
+    });
+    const all = document.getElementById("rep_all");
+    if(all) all.checked = !!val;
+  };
+
+  // preset ranges
+  $("#repLast7").onclick = ()=>{
+    const f = new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+    $("#repFrom").value = f;
+    $("#repTo").value = new Date().toISOString().slice(0,10);
+  };
+  $("#repThisMonth").onclick = ()=>{
+    const now = new Date();
+    const f = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+    $("#repFrom").value = f;
+    $("#repTo").value = new Date().toISOString().slice(0,10);
+  };
+  $("#repAllTime").onclick = ()=>{
+    // wide-open range
+    $("#repFrom").value = "2000-01-01";
+    $("#repTo").value = new Date().toISOString().slice(0,10);
+  };
+
   $("#repCancel").onclick = ()=> closeModal();
+
+  // All / none controls
+  $("#rep_all").onchange = ()=> setAll($("#rep_all").checked);
+  $("#repNone").onclick = ()=> setAll(false);
+  sections.forEach(([k])=>{
+    const el = document.getElementById("rep_"+k);
+    if(!el) return;
+    el.onchange = ()=>{
+      const all = sections.every(([kk])=> document.getElementById("rep_"+kk)?.checked);
+      const any = sections.some(([kk])=> document.getElementById("rep_"+kk)?.checked);
+      const a = document.getElementById("rep_all");
+      if(a) a.checked = all && any;
+    };
+  });
+
   $("#repGo").onclick = ()=>{
     const from = ($("#repFrom").value || rangeFrom);
     const to = ($("#repTo").value || rangeTo);
 
-    const sel = {
-      overview: $("#rep_overview").checked,
-      programme: $("#rep_programme").checked,
-      tasks: $("#rep_tasks").checked,
-      includeDoneTasks: $("#rep_includeDoneTasks").checked,
-      diary: $("#rep_diary").checked,
-      variations: $("#rep_variations").checked,
-      deliveries: $("#rep_deliveries").checked,
-      inspections: $("#rep_inspections").checked,
-      subbies: $("#rep_subbies").checked,
-    };
+    const sel = {};
+    sections.forEach(([k])=>{
+      sel[k] = !!document.getElementById("rep_"+k)?.checked;
+    });
 
     closeModal();
     runReportUI(projectId, from, to, sel);
   };
 }
-
 function runReportUI(projectId, from=null, to=null, opts=null){
   opts = opts || { overview:true, programme:true, tasks:true, diary:true, variations:true, deliveries:true, inspections:true, subbies:true, includeDoneTasks:false };
 
@@ -5672,7 +5727,7 @@ function runReportUI(projectId, from=null, to=null, opts=null){
           <div class="item">
             <div class="row space">
               <div><strong>${dateFmt(d.date)}</strong> ${d.billable?`<span class="badge ok">Billable</span>`:`<span class="badge">Non‑billable</span>`} ${d.hours?`<span class="badge">⏱ ${escapeHtml(String(d.hours))}h</span>`:""}</div>
-              <div class="smallmuted">${escapeHtml(d.category||"")}</div>
+              <div class="smallmuted">${escapeHtml(d.category||"")}${d.createdByName ? (" • " + escapeHtml(d.createdByName)) : ""}</div>
             </div>
             <div class="meta">${escapeHtml(d.summary||"")}</div>
           </div>
