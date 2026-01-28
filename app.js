@@ -5518,7 +5518,7 @@ function runReportConfigUI(projectId){
     <div class="card">
       <div class="row space">
         <div>
-          <h2 style="margin:0">Build Report</h2>
+          <h2 style="margin:0">Build Report <span class="smallmuted" style="font-size:12px">(2026-01-28 21:20:00)</span></h2>
           <div class="sub">${escapeHtml(p.name)} • ${escapeHtml(p.address||"")}</div>
         </div>
         <button class="btn" id="repCancel" type="button">Close</button>
@@ -6439,6 +6439,17 @@ function leadCard(l){
         </div>
       </div>
     </div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="row space"><div class="h3">Service Worker Tools</div><div class="sub">If updates get stuck</div></div>
+        <div class="row" style="gap:10px; flex-wrap:wrap; margin-top:10px">
+          <button class="btn" id="btnShowBuild" type="button">Show build</button>
+          <button class="btn" id="btnUnregisterSW" type="button">Unregister SW</button>
+          <button class="btn danger" id="btnNukeCaches" type="button">Clear caches + reload</button>
+        </div>
+        <div class="smallmuted" style="margin-top:8px">Build: ${BUILD_ID}</div>
+      </div>
+
 `;
 }
 
