@@ -407,8 +407,8 @@ function toast(msg, ms=2200){
     el.style.left = "50%";
     el.style.bottom = "84px";
     el.style.transform = "translateX(-50%)";
-    el.style.background = "rgba(0,0,0,0.85)";
-    el.style.color = "#fff";
+    el.style.background = "var(--toast-bg)";
+    el.style.color = "var(--toast-text)";
     el.style.padding = "10px 12px";
     el.style.borderRadius = "12px";
     el.style.fontSize = "14px";
@@ -5499,7 +5499,7 @@ function runReportUI(projectId, from=null, to=null){
         <img src="./logo.png" alt="logo" style="height:44px; width:auto"/>
         <div>
           <div style="font-size:18px; font-weight:900">${escapeHtml(settings.companyName)}</div>
-          <div style="color:#333; font-size:12px">${escapeHtml(p.name)} • ${escapeHtml(p.address||"")}</div>
+          <div style="color:var(--muted); font-size:12px">${escapeHtml(p.name)} • ${escapeHtml(p.address||"")}</div>
         </div>
       </div>
     </div>

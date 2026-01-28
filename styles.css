@@ -10,6 +10,7 @@
   --warn:#ffcc00;
   --shadow: 0 8px 22px rgba(0,0,0,.35);
   --toast-bg: rgba(15,22,32,0.92);
+  --toast-text: rgba(255,255,255,0.95);
   --radius:14px;
   --pad:14px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
@@ -24,6 +25,7 @@
   --danger:#d12b2b;
   --shadow: 0 10px 26px rgba(12,20,33,.12);
   --toast-bg: rgba(255,255,255,0.92);
+  --toast-text: rgba(17,23,34,0.96);
 }
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -856,3 +858,13 @@ body{ background: var(--bg) !important; color: var(--text) !important; }
 #modal .sub, #modal .smallmuted, #modal th{
   color: var(--muted) !important;
 }
+
+/* Theme hardening: force text colors to follow vars */
+#app, #modal { color: var(--text); }
+#app :where(p, span, div, label, li, td, th, small, strong, b, em, i, h1, h2, h3, h4, h5, h6){
+  color: inherit;
+}
+#app :where(.sub, .smallmuted, .muted){ color: var(--muted) !important; }
+#app :where(a){ color: var(--link); }
+#app :where(input, select, textarea){ color: var(--text); }
+#app :where(input::placeholder, textarea::placeholder){ color: var(--muted); }
