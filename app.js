@@ -1,6 +1,6 @@
 
 
-const BUILD_ID = "mcb-build-20260129-2045";
+const BUILD_ID = "mcb-build-20260129-2115";
 
 // === HARDWIRED SYNC CONFIG (loaded from sync-config.js) ===
 const __SYNC_CFG = (typeof window !== "undefined" && window.SYNC_CONFIG) ? window.SYNC_CONFIG : {};
@@ -1643,13 +1643,49 @@ async function openWorkerGateOnLaunch(){
     // Always default to Worker Mode on launch
     settings.workerMode.enabled = true;
     settings.workerMode.requirePin = true;
-    settings.workerMode.globalPin = true;
+    // Global/master pin is for initial setup / settings access only
+    settings.workerMode.globalPin = false;
 
     // Force selection each fresh app load
     settings.workerMode.currentWorkerId = "";
     saveSettings(settings);
 
     const workers = (settings.workers||[]).filter(w=>w && !w.blocked);
+    const workerById = {};
+    workers.forEach(w=>{ workerById[String(w.id)] = w; });
+
+    const showMasterSettingsGate = ()=>{
+      openModal(`
+        <div class="row space">
+          <h2>Master PIN</h2>
+          <button class="btn" id="closeModalBtn" type="button">Close</button>
+        </div>
+        <div class="sub" style="margin-top:6px">
+          Enter the Master PIN to access <b>Settings only</b>.
+        </div>
+        <div style="margin-top:12px" class="card">
+          <label class="label">Master PIN</label>
+          <input class="input" id="wm_master_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter master PIN" />
+          <div class="row" style="gap:10px; margin-top:10px">
+            <button class="btn primary" id="wm_unlock_settings" type="button">Unlock Settings</button>
+          </div>
+        </div>
+      `);
+      const btn = document.getElementById("wm_unlock_settings");
+      if(btn){
+        btn.onclick = async ()=>{
+          const pin = (document.getElementById("wm_master_pin")||{}).value || "";
+          const ok = await verifyWorkerMasterPin(pin);
+          if(!ok){ alert("Incorrect PIN."); return; }
+          __settingsOnlyUnlocked = true;
+          closeModal();
+          navTo("settings");
+          render();
+          updateNavVisibility();
+        };
+      }
+    };
+
     if(!workers.length){
       // No worker data: allow master PIN to unlock Settings only
       openModal(`
@@ -1685,49 +1721,92 @@ async function openWorkerGateOnLaunch(){
       return;
     }
 
-    // Workers exist: require selection + master PIN
-    const rows = workers.map(w=>`
-      <button class="listItem" type="button" data-wm-launch-pick="${escapeAttr(w.id)}">
+    const showWorkerPinGate = (workerId)=>{
+      const w = workerById[String(workerId)];
+      if(!w){ return; }
+      openModal(`
         <div class="row space">
-          <div>
-            <div class="row" style="gap:8px; align-items:center"><b>${escapeHtml(w.name||"Worker")}</b>${w.isAdmin?'<span class="badge">Admin</span>':''}</div>
-            <div class="sub">${w.isAdmin ? "Full access" : "Restricted access"}</div>
-          </div>
-          <div class="chev">›</div>
+          <h2>${escapeHtml(w.name||"Worker")}</h2>
+          <button class="btn" id="wm_back" type="button">Back</button>
         </div>
-      </button>
-    `).join("");
+        <div class="sub" style="margin-top:6px">Enter your PIN to continue.</div>
+        <div class="card" style="margin-top:12px">
+          <label class="label">Worker PIN</label>
+          <input class="input" id="wm_worker_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter your PIN" />
+          <div class="row" style="gap:10px; margin-top:10px">
+            <button class="btn primary" id="wm_login" type="button">Login</button>
+            <button class="btn" id="wm_settings_only" type="button">Settings (Master)</button>
+          </div>
+          ${!String(w.pinHash||"").trim() ? `<div class="smallmuted" style="margin-top:8px">No PIN set for this worker yet. Use Settings (Master) to set one.</div>` : ``}
+        </div>
+      `);
 
-    openModal(`
-      <div class="row space">
-        <h2>Select worker</h2>
-        <span class="badge">Worker mode</span>
-      </div>
-      <div class="sub" style="margin-top:6px">Choose your profile and enter the Master PIN to continue.</div>
+      const back = document.getElementById("wm_back");
+      if(back) back.onclick = ()=>showWorkerSelect();
 
-      <div class="card" style="margin-top:12px">
-        <label class="label">Master PIN</label>
-        <input class="input" id="wm_launch_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter master PIN" />
-      </div>
+      const settingsBtn = document.getElementById("wm_settings_only");
+      if(settingsBtn) settingsBtn.onclick = ()=>showMasterSettingsGate();
 
-      <div class="list" style="margin-top:12px">${rows}</div>
+      const loginBtn = document.getElementById("wm_login");
+      if(loginBtn){
+        loginBtn.onclick = async ()=>{
+          const pin = (document.getElementById("wm_worker_pin")||{}).value || "";
+          if(!String(w.pinHash||"").trim()){
+            alert("This worker does not have a PIN set yet. Use Settings (Master) to set one.");
+            return;
+          }
+          const ok = await verifyWorkerPin(w, pin);
+          if(!ok){ alert("Incorrect PIN."); return; }
+          __settingsOnlyUnlocked = false;
+          setCurrentWorker(String(workerId));
+          closeModal();
+          render();
+          updateNavVisibility();
+        };
+      }
+    };
 
-      <div class="smallmuted" style="margin-top:10px">If you can't access a module, ask an Admin to update your permissions.</div>
-    `);
+    const showWorkerSelect = ()=>{
+      const rows = workers.map(w=>`
+        <button class="listItem" type="button" data-wm-launch-pick="${escapeAttr(w.id)}">
+          <div class="row space">
+            <div>
+              <div class="row" style="gap:8px; align-items:center"><b>${escapeHtml(w.name||"Worker")}</b>${w.isAdmin?'<span class="badge">Admin</span>':''}</div>
+              <div class="sub">${w.isAdmin ? "Full access" : "Restricted access"}</div>
+            </div>
+            <div class="chev">›</div>
+          </div>
+        </button>
+      `).join("");
 
-    document.querySelectorAll("[data-wm-launch-pick]").forEach(btn=>{
-      btn.onclick = async ()=>{
-        const id = btn.getAttribute("data-wm-launch-pick");
-        const pin = (document.getElementById("wm_launch_pin")||{}).value || "";
-        const ok = await verifyWorkerMasterPin(pin);
-        if(!ok){ alert("Incorrect PIN."); return; }
-        __settingsOnlyUnlocked = false;
-        setCurrentWorker(id);
-        closeModal();
-        render();
-        updateNavVisibility();
-      };
-    });
+      openModal(`
+        <div class="row space">
+          <h2>Select worker</h2>
+          <span class="badge">Worker mode</span>
+        </div>
+        <div class="sub" style="margin-top:6px">Choose your profile, then enter <b>your PIN</b> to continue.</div>
+
+        <div class="row" style="gap:10px; margin-top:12px">
+          <button class="btn" id="wm_settings_only_from_select" type="button">Settings (Master)</button>
+        </div>
+
+        <div class="list" style="margin-top:12px">${rows}</div>
+
+        <div class="smallmuted" style="margin-top:10px">If you can't access a module, ask an Admin to update your permissions.</div>
+      `);
+
+      const sbtn = document.getElementById("wm_settings_only_from_select");
+      if(sbtn) sbtn.onclick = ()=>showMasterSettingsGate();
+
+      document.querySelectorAll("[data-wm-launch-pick]").forEach(btn=>{
+        btn.onclick = ()=>{
+          const id = btn.getAttribute("data-wm-launch-pick");
+          showWorkerPinGate(id);
+        };
+      });
+    };
+
+    showWorkerSelect();
   }catch(e){}
 }
 function openWorkerPicker(opts={}){
