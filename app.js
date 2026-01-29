@@ -1,6 +1,6 @@
 
 
-const BUILD_ID = "mcb-build-20260129-2205";
+const BUILD_ID = "mcb-build-20260129-2240";
 
 // === HARDWIRED SYNC CONFIG (loaded from sync-config.js) ===
 const __SYNC_CFG = (typeof window !== "undefined" && window.SYNC_CONFIG) ? window.SYNC_CONFIG : {};
@@ -1181,7 +1181,7 @@ const defaultSettings = () => ({
     enabled: true,
     currentWorkerId: "",
     requirePin: true,
-    globalPin: true
+    globalPin: false
   },
   workers: [], // [{id,name,pinHash,isAdmin,perms:{module:{view,edit}}}]
 
@@ -1475,10 +1475,12 @@ function _defaultPermsAll(){
   return perms;
 }
 function ensureWorkerSettings(){
-  settings.workerMode = settings.workerMode || { enabled:true, currentWorkerId:"", requirePin:true, globalPin:true };
+  settings.workerMode = settings.workerMode || { enabled:true, currentWorkerId:"", requirePin:true, globalPin:false };
   if(settings.workerMode.enabled!==true) settings.workerMode.enabled = true;
   if(settings.workerMode.requirePin!==true) settings.workerMode.requirePin = true;
-  if(settings.workerMode.globalPin!==true) settings.workerMode.globalPin = true;
+  // Master PIN is for initial setup only; do not use as global login
+  settings.workerMode.globalPin = false;
+  if(typeof settings.workerMode.globalPin!=="boolean") settings.workerMode.globalPin = false;
   if(!Array.isArray(settings.workers)) settings.workers = [];
   // Ensure at least one admin exists if worker mode is enabled
   if(settings.workerMode.enabled && settings.workers.length===0){
