@@ -1,6 +1,6 @@
 
 
-const BUILD_ID = "mcb-build-20260129-2115";
+const BUILD_ID = "mcb-build-20260129-2145";
 
 // === HARDWIRED SYNC CONFIG (loaded from sync-config.js) ===
 const __SYNC_CFG = (typeof window !== "undefined" && window.SYNC_CONFIG) ? window.SYNC_CONFIG : {};
@@ -1661,13 +1661,13 @@ async function openWorkerGateOnLaunch(){
           <button class="btn" id="closeModalBtn" type="button">Close</button>
         </div>
         <div class="sub" style="margin-top:6px">
-          Enter the Master PIN to access <b>Settings only</b>.
+          Enter the Master PIN to <b>add a worker profile</b> (initial setup).
         </div>
         <div style="margin-top:12px" class="card">
           <label class="label">Master PIN</label>
           <input class="input" id="wm_master_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter master PIN" />
           <div class="row" style="gap:10px; margin-top:10px">
-            <button class="btn primary" id="wm_unlock_settings" type="button">Unlock Settings</button>
+            <button class="btn primary" id="wm_unlock_settings" type="button">Continue</button>
           </div>
         </div>
       `);
@@ -1677,12 +1677,74 @@ async function openWorkerGateOnLaunch(){
           const pin = (document.getElementById("wm_master_pin")||{}).value || "";
           const ok = await verifyWorkerMasterPin(pin);
           if(!ok){ alert("Incorrect PIN."); return; }
-          __settingsOnlyUnlocked = true;
+          __settingsOnlyUnlocked = false;
           closeModal();
-          navTo("settings");
-          render();
-          updateNavVisibility();
-        };
+
+          // After Master PIN, allow creating a worker profile (so you can log in normally)
+          openModal(`
+            <div class="row space">
+              <h2>Add worker</h2>
+              <button class="btn" id="closeModalBtn" type="button">Close</button>
+            </div>
+            <div class="sub" style="margin-top:6px">Create a worker profile to use the app.</div>
+
+            <div class="card" style="margin-top:12px">
+              <label class="label">Name</label>
+              <input class="input" id="wm_new_name" placeholder="e.g., Mike" />
+              <div style="margin-top:10px">
+                <label class="label">PIN</label>
+                <input class="input" id="wm_new_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Set a PIN (numbers)" />
+              </div>
+
+              <label class="row" style="gap:8px; align-items:center; margin-top:10px">
+                <input type="checkbox" id="wm_new_admin" checked />
+                <span class="sub"><b>Admin</b> (full access)</span>
+              </label>
+
+              <div class="row" style="gap:10px; margin-top:12px">
+                <button class="btn primary" id="wm_create_worker" type="button">Create worker</button>
+              </div>
+              <div class="smallmuted" style="margin-top:8px">Tip: You can add more workers later in Worker profiles.</div>
+            </div>
+          `);
+
+          const cbtn = document.getElementById("wm_create_worker");
+          if(cbtn) cbtn.onclick = async ()=>{
+            const name = (document.getElementById("wm_new_name")?.value || "").trim();
+            const pin  = (document.getElementById("wm_new_pin")?.value || "").trim();
+            const isAdmin = !!(document.getElementById("wm_new_admin")?.checked);
+
+            if(!name){ alert("Please enter a name."); return; }
+            if(!pin){ alert("Please set a PIN for this user."); return; }
+
+            const nw = {
+              id: uid(),
+              name,
+              isAdmin,
+              blocked: false,
+              perms: isAdmin ? _defaultPermsAll() : (()=>{ const p=_defaultPermsAll(); try{ if(p.settings) p.settings.view=false, p.settings.edit=false; }catch(e){} return p; })(),
+              updatedAt: new Date().toISOString()
+            };
+            try{ nw.pinHash = await hashPin(pin); }
+            catch(e){ alert("Could not hash PIN. Try again."); return; }
+
+            settings.workers = (settings.workers||[]).filter(Boolean);
+            settings.workers.push(nw);
+
+            settings.workerMode = settings.workerMode || { enabled:true, currentWorkerId:"", requirePin:true };
+            settings.workerMode.enabled = true;
+            settings.workerMode.requirePin = true;
+            settings.workerMode.currentWorkerId = "";
+
+            saveSettings(settings);
+            ensureWorkerSettings();
+            try{ updateNavVisibility(); }catch(e){}
+
+            closeModal();
+            // Now proceed to worker PIN login for the newly created worker
+            showWorkerPinGate(nw.id);
+          };
+
       }
     };
 
