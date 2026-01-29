@@ -1,6 +1,6 @@
 
 
-const BUILD_ID = "mcb-build-20260129-2145";
+const BUILD_ID = "mcb-build-20260129-2205";
 
 // === HARDWIRED SYNC CONFIG (loaded from sync-config.js) ===
 const __SYNC_CFG = (typeof window !== "undefined" && window.SYNC_CONFIG) ? window.SYNC_CONFIG : {};
@@ -1637,7 +1637,7 @@ async function verifyWorkerMasterPin(pin){
 }
 
 async function openWorkerGateOnLaunch(){
-  try{
+
     ensureWorkerSettings();
 
     // Always default to Worker Mode on launch
@@ -1749,37 +1749,8 @@ async function openWorkerGateOnLaunch(){
     };
 
     if(!workers.length){
-      // No worker data: allow master PIN to unlock Settings only
-      openModal(`
-        <div class="row space">
-          <h2>Worker mode</h2>
-          <button class="btn" id="closeModalBtn" type="button">Close</button>
-        </div>
-        <div class="sub" style="margin-top:6px">
-          No worker profiles found. Enter the Master PIN to access <b>Settings only</b>.
-        </div>
-        <div style="margin-top:12px" class="card">
-          <label class="label">Master PIN</label>
-          <input class="input" id="wm_master_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter master PIN" />
-          <div class="row" style="gap:10px; margin-top:10px">
-            <button class="btn primary" id="wm_unlock_settings" type="button">Unlock Settings</button>
-          </div>
-          <div class="smallmuted" style="margin-top:8px">Tip: Add workers in Settings → Worker profiles.</div>
-        </div>
-      `);
-      const btn = document.getElementById("wm_unlock_settings");
-      if(btn){
-        btn.onclick = async ()=>{
-          const pin = (document.getElementById("wm_master_pin")||{}).value || "";
-          const ok = await verifyWorkerMasterPin(pin);
-          if(!ok){ alert("Incorrect PIN."); return; }
-          __settingsOnlyUnlocked = true;
-          closeModal();
-          navTo("settings");
-          render();
-          updateNavVisibility();
-        };
-      }
+      // No worker data yet: require Master PIN to create the first worker profile
+      showMasterSettingsGate();
       return;
     }
 
@@ -1869,7 +1840,7 @@ async function openWorkerGateOnLaunch(){
     };
 
     showWorkerSelect();
-  }catch(e){}
+  }
 }
 function openWorkerPicker(opts={}){
   ensureWorkerSettings();
