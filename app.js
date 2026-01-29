@@ -1,6 +1,6 @@
 
 
-const BUILD_ID = "mcb-build-20260129-2240";
+const BUILD_ID = "mcb-build-20260130-1930";
 
 // === HARDWIRED SYNC CONFIG (loaded from sync-config.js) ===
 const __SYNC_CFG = (typeof window !== "undefined" && window.SYNC_CONFIG) ? window.SYNC_CONFIG : {};
@@ -10,6 +10,37 @@ const HARD_COMPANY_KEY = String(__SYNC_CFG.COMPANY_KEY || "").trim();
 // === Worker Mode Master PIN (SHA-256 hash) ===
 const WORKER_MASTER_PIN_HASH = "6030014d252325366474c73d7bbb0710a3c0f88c70561944ef4c2c6e7756690a";
 
+
+const PROFILE_SETUP_ID = "profile_setup";
+
+function _defaultPermsSettingsOnly(){
+  const perms = {};
+  for(const k of MODULE_KEYS){
+    perms[k] = { view: false, edit: false };
+  }
+  perms.settings = { view: true, edit: true };
+  // allow worker management inside settings
+  perms.projectTabs = _defaultProjectTabPermsAll();
+  for(const [tk] of PROJECT_TABS){ perms.projectTabs[tk] = false; }
+  return perms;
+}
+
+function ensureProfileSetupWorker(){
+  settings.workers = Array.isArray(settings.workers) ? settings.workers : [];
+  let w = settings.workers.find(x=>x && x.id===PROFILE_SETUP_ID) || null;
+  if(!w){
+    w = { id: PROFILE_SETUP_ID, name: "Profile Setup", pinHash: MASTER_PIN_HASH, isAdmin:false, isSetup:true, blocked:false, perms:_defaultPermsSettingsOnly(), createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
+    settings.workers.unshift(w);
+  }else{
+    // keep master hash + settings-only perms locked
+    w.name = w.name || "Profile Setup";
+    w.isSetup = true;
+    w.isAdmin = false;
+    w.pinHash = MASTER_PIN_HASH;
+    w.blocked = false;
+    w.perms = _defaultPermsSettingsOnly();
+  }
+}
 
 
 try{
@@ -1482,10 +1513,11 @@ function ensureWorkerSettings(){
   settings.workerMode.globalPin = false;
   if(typeof settings.workerMode.globalPin!=="boolean") settings.workerMode.globalPin = false;
   if(!Array.isArray(settings.workers)) settings.workers = [];
-  // Ensure at least one admin exists if worker mode is enabled
-  if(settings.workerMode.enabled && settings.workers.length===0){
-    settings.workers.push({ id: uid(), name: "Admin", pinHash: "", isAdmin:true, blocked:false, perms: _defaultPermsAll(), createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() });
-    settings.workerMode.currentWorkerId = settings.workers[0].id;
+  // Ensure Profile Setup user exists (master PIN) and default to it when no other workers exist
+  ensureProfileSetupWorker();
+  // Do NOT auto-create Admin here; Profile Setup is used to add the first real worker.
+  if(settings.workers.filter(w=>w && !w.isSetup).length===0){
+    settings.workerMode.currentWorkerId = PROFILE_SETUP_ID;
     saveSettings(settings);
   }
   // Normalize perms shape
@@ -1819,20 +1851,11 @@ async function openWorkerGateOnLaunch(){
           <h2>Select worker</h2>
           <span class="badge">Worker mode</span>
         </div>
-        <div class="sub" style="margin-top:6px">Choose your profile, then enter <b>your PIN</b> to continue.</div>
-
-        <div class="row" style="gap:10px; margin-top:12px">
-          <button class="btn" id="wm_settings_only_from_select" type="button">Settings (Master)</button>
-        </div>
-
+        <div class="sub" style="margin-top:6px">Choose your profile, then enter <b>your PIN</b> to continue. Use <b>Profile Setup</b> to manage settings.</div>
         <div class="list" style="margin-top:12px">${rows}</div>
 
         <div class="smallmuted" style="margin-top:10px">If you can't access a module, ask an Admin to update your permissions.</div>
       `);
-
-      const sbtn = document.getElementById("wm_settings_only_from_select");
-      if(sbtn) sbtn.onclick = ()=>showMasterSettingsGate();
-
       document.querySelectorAll("[data-wm-launch-pick]").forEach(btn=>{
         btn.onclick = ()=>{
           const id = btn.getAttribute("data-wm-launch-pick");
