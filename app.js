@@ -1567,6 +1567,17 @@ function addActivity(entry){
   try{
     state.activityLog = aliveArr(state.activityLog);
     const e = { id: uid(), at: nowISO(), ...entry };
+
+    // Best-effort attribution to the currently selected worker (if any)
+    try{
+      const wid = (settings && settings.workerMode && settings.workerMode.currentWorkerId) ? String(settings.workerMode.currentWorkerId) : "";
+      if(!e.workerId && wid) e.workerId = wid;
+      if(!e.workerName && (e.workerId || wid)){
+        const w = workerById(e.workerId || wid);
+        if(w && w.name) e.workerName = w.name;
+      }
+    }catch(_){}
+
     state.activityLog.unshift(e);
     if(state.activityLog.length > 500) state.activityLog = state.activityLog.slice(0, 500);
   }catch(err){}
@@ -5579,7 +5590,33 @@ function runReportUI(projectId, from=null, to=null, opts=null){
 
   const activity = sections.activity ? aliveArr(state.activityLog).filter(a=> (a.projectId===projectId || a.pid===projectId) && isAlive(a)).filter(a=> inRange(a.date||a.createdAt||"") || allTime) : [];
 
+// Activity helpers (details can be objects; include worker attribution if available)
+const activityWorker = (a)=>{
+  const n = a.workerName || a.byName || a.userName || a.enteredByName || "";
+  if(n) return n;
+  const wid = a.workerId || a.byId || a.userId || a.enteredById || "";
+  const w = wid ? workerById(wid) : null;
+  return (w && w.name) ? w.name : (a.by || "");
+};
+const activityDetailsText = (a)=>{
+  const cand = a.details ?? a.detail ?? a.note ?? a.summary ?? a.meta ?? a.data ?? a.changes ?? a.payload ?? "";
+  if(cand && typeof cand === "object"){
+    try{ return JSON.stringify(cand); }catch(_){ return String(cand); }
+  }
+  if(String(cand||"").trim()) return String(cand);
+
+  // Fallback: stringify remaining fields (excluding common headers)
+  try{
+    const skip = new Set(["id","at","createdAt","date","projectId","pid","action","type","workerId","workerName","by","byId","byName","userId","userName","enteredById","enteredByName"]);
+    const o = {};
+    Object.keys(a||{}).forEach(k=>{ if(!skip.has(k)) o[k]=a[k]; });
+    const s = JSON.stringify(o);
+    return s && s !== "{}" ? s : "";
+  }catch(_){ return ""; }
+};
+
   // --- Build sections HTML ---
+
   const blocks = [];
 
   // Header / cover
@@ -5782,26 +5819,32 @@ function runReportUI(projectId, from=null, to=null, opts=null){
             <thead><tr><th>Date</th><th>Item</th><th>Entry</th></tr></thead>
             <tbody>
               ${equipmentLogs.map(l=>`<tr><td>${escapeHtml(l.date?dateFmt(l.date):"")}</td><td>${escapeHtml(l.item||l.equipmentName||"")}</td><td>${escapeHtml((l.notes||l.entry||l.summary||"").slice(0,200))}</td></tr>`).join("")}
+   if(sections.activity){
+    blocks.push(`
+      <div class="card">
+        <h2>Activity log</h2>
+        ${activity.length ? `
+          <table>
+            <thead><tr><th>Date</th><th>Worker</th><th>Action</th><th>Details</th></tr></thead>
+            <tbody>
+              ${activity.sort((a,b)=>(a.date||a.createdAt||a.at||"").localeCompare(b.date||b.createdAt||b.at||"")).map(a=>{
+                const d = a.date || a.createdAt || a.at || "";
+                const who = activityWorker(a) || "—";
+                const det = activityDetailsText(a);
+                return `<tr>
+                  <td>${escapeHtml(d ? dateFmt(d) : "")}</td>
+                  <td>${escapeHtml(who)}</td>
+                  <td>${escapeHtml(a.action||a.type||"")}</td>
+                  <td>${escapeHtml((det||"").slice(0,600))}</td>
+                </tr>`;
+              }).join("")}
             </tbody>
-          </table>` : ``}
+          </table>` : `<div class="sub">No activity logged${allTime ? "." : " in range."}</div>`}
       </div>
     `);
   }
 
-  if(sections.fleet){
-    blocks.push(`
-      <div class="card">
-        <h2>Fleet</h2>
-        ${fleet.length ? `
-          <table>
-            <thead><tr><th>Vehicle</th><th>Rego</th><th>Status</th><th>Notes</th></tr></thead>
-            <tbody>
-              ${fleet.map(v=>`<tr><td>${escapeHtml(v.name||v.vehicle||"")}</td><td>${escapeHtml(v.rego||"")}</td><td>${escapeHtml(v.status||"")}</td><td>${escapeHtml((v.notes||"").slice(0,160))}</td></tr>`).join("")}
-            </tbody>
-          </table>` : `<div class="sub">No fleet items linked to this project.</div>`}
-        ${fleetLogs.length ? `
-          <hr/>
-          <div class="sub">Logs</div>
+/div>
           <table>
             <thead><tr><th>Date</th><th>Vehicle</th><th>Entry</th></tr></thead>
             <tbody>
@@ -7867,6 +7910,17 @@ function addActivity(entry){
   try{
     state.activityLog = aliveArr(state.activityLog);
     const e = { id: uid(), at: nowISO(), ...entry };
+
+    // Best-effort attribution to the currently selected worker (if any)
+    try{
+      const wid = (settings && settings.workerMode && settings.workerMode.currentWorkerId) ? String(settings.workerMode.currentWorkerId) : "";
+      if(!e.workerId && wid) e.workerId = wid;
+      if(!e.workerName && (e.workerId || wid)){
+        const w = workerById(e.workerId || wid);
+        if(w && w.name) e.workerName = w.name;
+      }
+    }catch(_){}
+
     state.activityLog.unshift(e);
     if(state.activityLog.length > 500) state.activityLog = state.activityLog.slice(0, 500);
   }catch(err){}
