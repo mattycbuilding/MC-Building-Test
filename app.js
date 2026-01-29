@@ -1,6 +1,6 @@
 
 
-const BUILD_ID = "mcb-build-20260124-1135";
+const BUILD_ID = "mcb-build-20260129-1930";
 
 try{
   const prev = localStorage.getItem("mcb_build_id") || "";
@@ -5819,32 +5819,26 @@ const activityDetailsText = (a)=>{
             <thead><tr><th>Date</th><th>Item</th><th>Entry</th></tr></thead>
             <tbody>
               ${equipmentLogs.map(l=>`<tr><td>${escapeHtml(l.date?dateFmt(l.date):"")}</td><td>${escapeHtml(l.item||l.equipmentName||"")}</td><td>${escapeHtml((l.notes||l.entry||l.summary||"").slice(0,200))}</td></tr>`).join("")}
-   if(sections.activity){
-    blocks.push(`
-      <div class="card">
-        <h2>Activity log</h2>
-        ${activity.length ? `
-          <table>
-            <thead><tr><th>Date</th><th>Worker</th><th>Action</th><th>Details</th></tr></thead>
-            <tbody>
-              ${activity.sort((a,b)=>(a.date||a.createdAt||a.at||"").localeCompare(b.date||b.createdAt||b.at||"")).map(a=>{
-                const d = a.date || a.createdAt || a.at || "";
-                const who = activityWorker(a) || "—";
-                const det = activityDetailsText(a);
-                return `<tr>
-                  <td>${escapeHtml(d ? dateFmt(d) : "")}</td>
-                  <td>${escapeHtml(who)}</td>
-                  <td>${escapeHtml(a.action||a.type||"")}</td>
-                  <td>${escapeHtml((det||"").slice(0,600))}</td>
-                </tr>`;
-              }).join("")}
             </tbody>
-          </table>` : `<div class="sub">No activity logged${allTime ? "." : " in range."}</div>`}
+          </table>` : ``}
       </div>
     `);
   }
 
-/div>
+  if(sections.fleet){
+    blocks.push(`
+      <div class="card">
+        <h2>Fleet</h2>
+        ${fleet.length ? `
+          <table>
+            <thead><tr><th>Vehicle</th><th>Type</th><th>Status</th><th>Notes</th></tr></thead>
+            <tbody>
+              ${fleet.map(v=>`<tr><td>${escapeHtml(v.name||v.vehicle||"")}</td><td>${escapeHtml(v.type||"")}</td><td>${escapeHtml(v.status||"")}</td><td>${escapeHtml((v.notes||"").slice(0,160))}</td></tr>`).join("")}
+            </tbody>
+          </table>` : `<div class="sub">No fleet linked to this project.</div>`}
+        ${fleetLogs.length ? `
+          <hr/>
+          <div class="sub">Logs</div>
           <table>
             <thead><tr><th>Date</th><th>Vehicle</th><th>Entry</th></tr></thead>
             <tbody>
@@ -5861,9 +5855,19 @@ const activityDetailsText = (a)=>{
         <h2>Activity log</h2>
         ${activity.length ? `
           <table>
-            <thead><tr><th>Date</th><th>Action</th><th>Details</th></tr></thead>
+            <thead><tr><th>Date</th><th>Worker</th><th>Action</th><th>Details</th></tr></thead>
             <tbody>
-              ${activity.sort((a,b)=>(a.date||a.createdAt||"").localeCompare(b.date||b.createdAt||"")).map(a=>`<tr><td>${escapeHtml(a.date?dateFmt(a.date):(a.createdAt?dateFmt(a.createdAt):""))}</td><td>${escapeHtml(a.action||a.type||"")}</td><td>${escapeHtml((a.details||a.note||a.summary||"").slice(0,220))}</td></tr>`).join("")}
+              ${activity.sort((a,b)=>(a.date||a.createdAt||a.at||"").localeCompare(b.date||b.createdAt||b.at||"")).map(a=>{
+                const d = a.date || a.createdAt || a.at || "";
+                const who = activityWorker(a) || "—";
+                const det = activityDetailsText(a);
+                return `<tr>
+                  <td>${escapeHtml(d ? dateFmt(d) : "")}</td>
+                  <td>${escapeHtml(who)}</td>
+                  <td>${escapeHtml(a.action||a.type||"")}</td>
+                  <td>${escapeHtml((det||"").slice(0,900))}</td>
+                </tr>`;
+              }).join("")}
             </tbody>
           </table>` : `<div class="sub">No activity logged${allTime ? "." : " in range."}</div>`}
       </div>
