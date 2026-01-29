@@ -1,6 +1,16 @@
 
 
-const BUILD_ID = "mcb-build-20260129-1930";
+const BUILD_ID = "mcb-build-20260129-2045";
+
+// === HARDWIRED SYNC CONFIG (loaded from sync-config.js) ===
+const __SYNC_CFG = (typeof window !== "undefined" && window.SYNC_CONFIG) ? window.SYNC_CONFIG : {};
+const HARD_SYNC_URL = String(__SYNC_CFG.APPS_SCRIPT_URL || "").trim();
+const HARD_COMPANY_KEY = String(__SYNC_CFG.COMPANY_KEY || "").trim();
+
+// === Worker Mode Master PIN (SHA-256 hash) ===
+const WORKER_MASTER_PIN_HASH = "6030014d252325366474c73d7bbb0710a3c0f88c70561944ef4c2c6e7756690a";
+
+
 
 try{
   const prev = localStorage.getItem("mcb_build_id") || "";
@@ -453,6 +463,7 @@ function showApp(){
   const ls=document.getElementById("loginScreen"); if(ls) ls.style.display="none";
   const ap=document.getElementById("app"); if(ap) ap.style.display="block";
   render(); try{renderDeletedProjectsUI();}catch(e){}
+  try{ setTimeout(()=>{ openWorkerGateOnLaunch(); }, 30); }catch(e){}
     try{
       const lu = document.getElementById('lastUpdateStamp');
       if(lu) lu.textContent = getLastUpdateStamp();
@@ -1167,9 +1178,10 @@ const defaultSettings = () => ({
 
   // Worker Profiles / Worker Mode
   workerMode: {
-    enabled: false,
+    enabled: true,
     currentWorkerId: "",
-    requirePin: false
+    requirePin: true,
+    globalPin: true
   },
   workers: [], // [{id,name,pinHash,isAdmin,perms:{module:{view,edit}}}]
 
@@ -1333,10 +1345,23 @@ function saveState(s){
 }
 function loadSettings(){
   const local = loadSettingsFromLocalStorage();
-  return { ...defaultSettings(), ...(local || {}) };
+  const next = { ...defaultSettings(), ...(local || {}) };
+
+  // Hardwire sync config (do not let Settings overwrite these).
+  if(!next.sync) next.sync = {};
+  next.sync.url = HARD_SYNC_URL;
+  next.sync.key = HARD_COMPANY_KEY;
+
+  return next;
 }
 function saveSettings(s){
   const next = { ...defaultSettings(), ...(s||{}) };
+
+  // Hardwire sync config (do not let Settings overwrite these).
+  if(!next.sync) next.sync = {};
+  next.sync.url = HARD_SYNC_URL;
+  next.sync.key = HARD_COMPANY_KEY;
+
   saveSettingsToLocalStorage(next);
   __pendingSettings = next;
   schedulePersist();
@@ -1450,7 +1475,10 @@ function _defaultPermsAll(){
   return perms;
 }
 function ensureWorkerSettings(){
-  settings.workerMode = settings.workerMode || { enabled:false, currentWorkerId:"", requirePin:false };
+  settings.workerMode = settings.workerMode || { enabled:true, currentWorkerId:"", requirePin:true, globalPin:true };
+  if(settings.workerMode.enabled!==true) settings.workerMode.enabled = true;
+  if(settings.workerMode.requirePin!==true) settings.workerMode.requirePin = true;
+  if(settings.workerMode.globalPin!==true) settings.workerMode.globalPin = true;
   if(!Array.isArray(settings.workers)) settings.workers = [];
   // Ensure at least one admin exists if worker mode is enabled
   if(settings.workerMode.enabled && settings.workers.length===0){
@@ -1512,7 +1540,10 @@ function setCurrentWorker(id){
   try{ updateNavVisibility(); }catch(e){}
   return true;
 }
+let __settingsOnlyUnlocked = false;
+
 function canView(moduleKey){
+  if(__settingsOnlyUnlocked) return moduleKey==="settings";
   if(!workerModeEnabled()) return true;
   const w = currentWorker();
   if(!w) return false;
@@ -1520,6 +1551,7 @@ function canView(moduleKey){
   return !!(w.perms && w.perms[moduleKey] && w.perms[moduleKey].view);
 }
 function canEdit(moduleKey){
+  if(__settingsOnlyUnlocked) return moduleKey==="settings";
   if(!workerModeEnabled()) return true;
   const w = currentWorker();
   if(!w) return false;
@@ -1596,6 +1628,108 @@ function routeToModule(path){
   return path;
 }
 
+
+async function verifyWorkerMasterPin(pin){
+  try{
+    const ph = await hashPin(String(pin||"").trim());
+    return !!ph && ph === WORKER_MASTER_PIN_HASH;
+  }catch(e){ return false; }
+}
+
+async function openWorkerGateOnLaunch(){
+  try{
+    ensureWorkerSettings();
+
+    // Always default to Worker Mode on launch
+    settings.workerMode.enabled = true;
+    settings.workerMode.requirePin = true;
+    settings.workerMode.globalPin = true;
+
+    // Force selection each fresh app load
+    settings.workerMode.currentWorkerId = "";
+    saveSettings(settings);
+
+    const workers = (settings.workers||[]).filter(w=>w && !w.blocked);
+    if(!workers.length){
+      // No worker data: allow master PIN to unlock Settings only
+      openModal(`
+        <div class="row space">
+          <h2>Worker mode</h2>
+          <button class="btn" id="closeModalBtn" type="button">Close</button>
+        </div>
+        <div class="sub" style="margin-top:6px">
+          No worker profiles found. Enter the Master PIN to access <b>Settings only</b>.
+        </div>
+        <div style="margin-top:12px" class="card">
+          <label class="label">Master PIN</label>
+          <input class="input" id="wm_master_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter master PIN" />
+          <div class="row" style="gap:10px; margin-top:10px">
+            <button class="btn primary" id="wm_unlock_settings" type="button">Unlock Settings</button>
+          </div>
+          <div class="smallmuted" style="margin-top:8px">Tip: Add workers in Settings → Worker profiles.</div>
+        </div>
+      `);
+      const btn = document.getElementById("wm_unlock_settings");
+      if(btn){
+        btn.onclick = async ()=>{
+          const pin = (document.getElementById("wm_master_pin")||{}).value || "";
+          const ok = await verifyWorkerMasterPin(pin);
+          if(!ok){ alert("Incorrect PIN."); return; }
+          __settingsOnlyUnlocked = true;
+          closeModal();
+          navTo("settings");
+          render();
+          updateNavVisibility();
+        };
+      }
+      return;
+    }
+
+    // Workers exist: require selection + master PIN
+    const rows = workers.map(w=>`
+      <button class="listItem" type="button" data-wm-launch-pick="${escapeAttr(w.id)}">
+        <div class="row space">
+          <div>
+            <div class="row" style="gap:8px; align-items:center"><b>${escapeHtml(w.name||"Worker")}</b>${w.isAdmin?'<span class="badge">Admin</span>':''}</div>
+            <div class="sub">${w.isAdmin ? "Full access" : "Restricted access"}</div>
+          </div>
+          <div class="chev">›</div>
+        </div>
+      </button>
+    `).join("");
+
+    openModal(`
+      <div class="row space">
+        <h2>Select worker</h2>
+        <span class="badge">Worker mode</span>
+      </div>
+      <div class="sub" style="margin-top:6px">Choose your profile and enter the Master PIN to continue.</div>
+
+      <div class="card" style="margin-top:12px">
+        <label class="label">Master PIN</label>
+        <input class="input" id="wm_launch_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter master PIN" />
+      </div>
+
+      <div class="list" style="margin-top:12px">${rows}</div>
+
+      <div class="smallmuted" style="margin-top:10px">If you can't access a module, ask an Admin to update your permissions.</div>
+    `);
+
+    document.querySelectorAll("[data-wm-launch-pick]").forEach(btn=>{
+      btn.onclick = async ()=>{
+        const id = btn.getAttribute("data-wm-launch-pick");
+        const pin = (document.getElementById("wm_launch_pin")||{}).value || "";
+        const ok = await verifyWorkerMasterPin(pin);
+        if(!ok){ alert("Incorrect PIN."); return; }
+        __settingsOnlyUnlocked = false;
+        setCurrentWorker(id);
+        closeModal();
+        render();
+        updateNavVisibility();
+      };
+    });
+  }catch(e){}
+}
 function openWorkerPicker(opts={}){
   ensureWorkerSettings();
   const requirePin = !!(settings.workerMode && settings.workerMode.requirePin);
@@ -1637,11 +1771,19 @@ function openWorkerPicker(opts={}){
           alert("This user is blocked.");
           return;
         }
-        if(requirePin && (w.pinHash||"").trim()){
-          const pin = prompt(`Enter PIN for ${w.name}`);
-          if(pin === null) return;
-          const ok = await verifyWorkerPin(w, pin);
-          if(!ok){ alert("Incorrect PIN."); return; }
+        if(requirePin){
+          // If global/master PIN is enabled, use it for all worker selection.
+          if(settings.workerMode && settings.workerMode.globalPin){
+            const pin = prompt(`Enter Master PIN to use ${w.name}`);
+            if(pin === null) return;
+            const ok = await verifyWorkerMasterPin(pin);
+            if(!ok){ alert("Incorrect PIN."); return; }
+          }else if((w.pinHash||"").trim()){
+            const pin = prompt(`Enter PIN for ${w.name}`);
+            if(pin === null) return;
+            const ok = await verifyWorkerPin(w, pin);
+            if(!ok){ alert("Incorrect PIN."); return; }
+          }
         }
         setCurrentWorker(id);
         closeModal();
@@ -6026,10 +6168,6 @@ function renderSettings(app){
       <div class="card">
         <h2>Google Sheets sync</h2>
         <div class="sub">Sync everything (projects, tasks, diary, variations, deliveries, inspections, H&amp;S, equipment, leads, and worker profiles).</div>
-        <label style="margin-top:10px">Apps Script URL</label>
-        <input class="input" id="sync_url" value="${escapeHtml((settings.sync && settings.sync.url) || "")}" placeholder="https://script.google.com/macros/s/…/exec" />
-        <label>Company key</label>
-        <input class="input" id="sync_key" value="${escapeHtml((settings.sync && settings.sync.key) || "")}" placeholder="Your company key" />
         <div class="row" style="gap:10px; flex-wrap:wrap; margin-top:10px">
           <button class="btn primary" id="settingsSyncBtn" type="button">Sync now</button>
           <button class="btn" id="settingsDownloadOnlyBtn" type="button">Download only</button>
@@ -6119,14 +6257,8 @@ function renderSettings(app){
   // Settings page: bind Export/Import buttons
   try{ bindImportExportButtons(); }catch(e){}
   try{ bindWorkerSettingsUI(); }catch(e){}
-
   // Google Sheets Sync (Settings)
   try{
-    const u = document.getElementById("sync_url");
-    const k = document.getElementById("sync_key");
-    if(!settings.sync) settings.sync = { url:"", key:"" };
-    if(u) u.onchange = ()=>{ settings.sync.url = u.value.trim(); saveSettings(settings); };
-    if(k) k.onchange = ()=>{ settings.sync.key = k.value.trim(); saveSettings(settings); };
 
     const btn = document.getElementById("settingsSyncBtn");
     const dl = document.getElementById("settingsDownloadOnlyBtn");
