@@ -868,22 +868,3 @@ body{ background: var(--bg) !important; color: var(--text) !important; }
 #app :where(a){ color: var(--link); }
 #app :where(input, select, textarea){ color: var(--text); }
 #app :where(input::placeholder, textarea::placeholder){ color: var(--muted); }
-
-/* Report builder + general checkbox visibility */
-input[type="checkbox"]{
-  width:18px;
-  height:18px;
-  accent-color: var(--brand);
-}
-
-.input[type="date"]{
-  min-height:44px;
-}
-
-/* checkbox appearance fix */
-input[type="checkbox"], input[type="radio"]{
-  appearance: auto;
-  -webkit-appearance: auto;
-  background: transparent !important;
-  border: none !important;
-}

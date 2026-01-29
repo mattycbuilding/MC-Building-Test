@@ -3939,7 +3939,7 @@ if(tab==="variations"){
     });
   }
   if(tab==="reports"){
-    $("#runProjectReport").onclick = ()=> runReportConfigUI(p.id);
+    $("#runProjectReport").onclick = ()=> runReportUI(p.id);
     $("#hnryExportProj").onclick = ()=> runHnryExportUI(p.id);
   }
 }
@@ -5435,6 +5435,7 @@ function renderReports(app){
           <button class="btn primary" id="runReport" type="button">Run Job Report</button>
         </div>
       </div>
+
       <div class="grid two">
         <div>
           <label>Project</label>
@@ -5445,6 +5446,7 @@ ${projects.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join
         </div>
         <div></div>
       </div>
+
       <div class="grid two">
         <div>
           <label>Date from</label>
@@ -5455,14 +5457,70 @@ ${projects.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join
           <input id="r_to" class="input" type="date" value="${new Date().toISOString().slice(0,10)}" />
         </div>
       </div>
-      <div class="sub">Reports open in a printable preview. Use your browser share/print to save as PDF.</div>
+
+      <div class="row" style="gap:10px; align-items:center; margin-top:10px">
+        <label class="row" style="gap:8px; align-items:center">
+          <input id="r_alltime" type="checkbox" />
+          <span><strong>All time</strong></span>
+        </label>
+        <span class="sub">Ignore the date range and include everything for that project.</span>
+      </div>
+
+      <hr/>
+      <div style="font-weight:800; margin-bottom:8px">Include in Job Report</div>
+      <div class="grid two" style="gap:10px">
+        <label class="row" style="gap:8px; align-items:center"><input id="r_inc_summary" type="checkbox" checked/> <span>Project summary</span></label>
+        <label class="row" style="gap:8px; align-items:center"><input id="r_inc_diary" type="checkbox" checked/> <span>Diary</span></label>
+        <label class="row" style="gap:8px; align-items:center"><input id="r_inc_tasks" type="checkbox" checked/> <span>Tasks (open & completed)</span></label>
+        <label class="row" style="gap:8px; align-items:center"><input id="r_inc_variations" type="checkbox" checked/> <span>Variations</span></label>
+        <label class="row" style="gap:8px; align-items:center"><input id="r_inc_deliveries" type="checkbox" checked/> <span>Deliveries</span></label>
+        <label class="row" style="gap:8px; align-items:center"><input id="r_inc_inspections" type="checkbox" checked/> <span>Inspections</span></label>
+        <label class="row" style="gap:8px; align-items:center"><input id="r_inc_leads" type="checkbox" checked/> <span>Leads</span></label>
+        <label class="row" style="gap:8px; align-items:center"><input id="r_inc_programme" type="checkbox" checked/> <span>Programme</span></label>
+        <label class="row" style="gap:8px; align-items:center"><input id="r_inc_equipment" type="checkbox" checked/> <span>Equipment (assigned/logs)</span></label>
+        <label class="row" style="gap:8px; align-items:center"><input id="r_inc_fleet" type="checkbox" checked/> <span>Fleet (assigned/logs)</span></label>
+        <label class="row" style="gap:8px; align-items:center"><input id="r_inc_activity" type="checkbox" checked/> <span>Activity log</span></label>
+        <div></div>
+      </div>
+
+      <div class="sub" style="margin-top:10px">Reports open in a printable preview. Use your browser share/print to save as PDF.</div>
     </div>
   `;
+
+  const syncRangeUI = ()=>{
+    const all = $("#r_alltime").checked;
+    $("#r_from").disabled = all;
+    $("#r_to").disabled = all;
+    $("#r_from").style.opacity = all ? "0.55" : "1";
+    $("#r_to").style.opacity = all ? "0.55" : "1";
+  };
+  $("#r_alltime").onchange = syncRangeUI;
+  syncRangeUI();
+
   $("#runReport").onclick = ()=>{
     const pid = $("#r_project").value;
     if(pid==="__ALL__"){ alert("Select a specific project for Job Report."); return; }
-    runReportUI(pid, $("#r_from").value, $("#r_to").value);
+
+    const opts = {
+      allTime: $("#r_alltime").checked,
+      sections: {
+        summary: $("#r_inc_summary").checked,
+        diary: $("#r_inc_diary").checked,
+        tasks: $("#r_inc_tasks").checked,
+        variations: $("#r_inc_variations").checked,
+        deliveries: $("#r_inc_deliveries").checked,
+        inspections: $("#r_inc_inspections").checked,
+        leads: $("#r_inc_leads").checked,
+        programme: $("#r_inc_programme").checked,
+        equipment: $("#r_inc_equipment").checked,
+        fleet: $("#r_inc_fleet").checked,
+        activity: $("#r_inc_activity").checked
+      }
+    };
+
+    runReportUI(pid, opts.allTime ? null : $("#r_from").value, opts.allTime ? null : $("#r_to").value, opts);
   };
+
   $("#hnryExport").onclick = ()=>{
     const pid = $("#r_project").value;
     runHnryExportUI(pid, $("#r_from").value, $("#r_to").value);
@@ -5482,169 +5540,50 @@ ${projects.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join
 }
 
 
-function runReportConfigUI(projectId){
+function runReportUI(projectId, from=null, to=null, opts=null){
   const p = projectById(projectId);
   if(!p) return;
 
-  // default: last 7 days, but user can change
-  const rangeFrom = new Date(Date.now()-7*86400000).toISOString().slice(0,10);
-  const rangeTo = new Date().toISOString().slice(0,10);
-
-  const opts = {
-    overview:true,
-    programme:true,
-    tasks:true,
-    diary:true,
-    variations:true,
-    deliveries:true,
-    inspections:true,
-    subbies:true,
-    includeDoneTasks:false
+  const sections = (opts && opts.sections) ? opts.sections : {
+    summary:true, diary:true, tasks:true, variations:true, deliveries:true, inspections:true, leads:true, programme:true, equipment:true, fleet:true, activity:true
   };
 
-  const sections = [
-    ["overview","Project overview"],
-    ["programme","Programme"],
-    ["tasks","Tasks (open)"],
-    ["includeDoneTasks","Include completed tasks"],
-    ["diary","Diary"],
-    ["variations","Variations"],
-    ["deliveries","Deliveries"],
-    ["inspections","Inspections"],
-    ["subbies","Subbies"],
-  ];
+  const allTime = !!(opts && opts.allTime);
+  const rangeFrom = allTime ? "0000-01-01" : (from || new Date(Date.now()-7*86400000).toISOString().slice(0,10));
+  const rangeTo = allTime ? "9999-12-31" : (to || new Date().toISOString().slice(0,10));
 
-  const html = `
-    <div class="card">
-      <div class="row space">
-        <div>
-          <h2 style="margin:0">Build Report <span class="smallmuted" style="font-size:12px">(2026-01-28 21:20:00)</span></h2>
-          <div class="sub">${escapeHtml(p.name)} • ${escapeHtml(p.address||"")}</div>
-        </div>
-        <button class="btn" id="repCancel" type="button">Close</button>
-      </div>
-
-      <hr/>
-
-      <div class="row space" style="align-items:flex-end; gap:10px; flex-wrap:wrap">
-        <div style="flex:1; min-width:160px">
-          <label class="sub">From</label>
-          <input class="input" id="repFrom" type="date" value="${escapeAttr(rangeFrom)}"/>
-        </div>
-        <div style="flex:1; min-width:160px">
-          <label class="sub">To</label>
-          <input class="input" id="repTo" type="date" value="${escapeAttr(rangeTo)}"/>
-        </div>
-        <div class="row" style="gap:8px; flex-wrap:wrap">
-          <button class="btn sm" id="repLast7" type="button">Last 7 days</button>
-          <button class="btn sm" id="repThisMonth" type="button">This month</button>
-          <button class="btn sm" id="repAllTime" type="button">All time</button>
-        </div>
-      </div>
-
-      <div class="row space" style="margin-top:14px; align-items:center">
-        <div class="sub">Select sections to include</div>
-        <div class="row" style="gap:10px">
-          <label class="row" style="gap:8px; align-items:center; margin:0">
-            <input type="checkbox" id="rep_all" checked />
-            <span class="sub">All</span>
-          </label>
-          <button class="btn sm" id="repNone" type="button">None</button>
-        </div>
-      </div>
-
-      <div class="grid two" style="margin-top:8px">
-        ${sections.map(([k,label])=>`
-          <label class="row" style="gap:10px; align-items:center; justify-content:flex-start; margin:0; font-weight:700">
-            <input type="checkbox" id="rep_${k}" ${opts[k] ? "checked":""}/>
-            <span>${escapeHtml(label)}</span>
-          </label>
-        `).join("")}
-      </div>
-
-      <hr/>
-
-      <div class="row space noPrint" style="margin-top:10px">
-        <div class="smallmuted">Tip: set a wide date range for full job history.</div>
-        <button class="btn primary" id="repGo" type="button">Generate report</button>
-      </div>
-    </div>
-  `;
-
-  showModal(html);
-
-  const setAll = (val)=>{
-    sections.forEach(([k])=>{
-      const el = document.getElementById("rep_"+k);
-      if(el) el.checked = !!val;
-    });
-    const all = document.getElementById("rep_all");
-    if(all) all.checked = !!val;
+  const inRange = (d)=> {
+    const x = (d||"").slice(0,10);
+    if(!x) return false;
+    return x>=rangeFrom && x<=rangeTo;
   };
 
-  // preset ranges
-  $("#repLast7").onclick = ()=>{
-    const f = new Date(Date.now()-7*86400000).toISOString().slice(0,10);
-    $("#repFrom").value = f;
-    $("#repTo").value = new Date().toISOString().slice(0,10);
-  };
-  $("#repThisMonth").onclick = ()=>{
-    const now = new Date();
-    const f = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
-    $("#repFrom").value = f;
-    $("#repTo").value = new Date().toISOString().slice(0,10);
-  };
-  $("#repAllTime").onclick = ()=>{
-    // wide-open range
-    $("#repFrom").value = "2000-01-01";
-    $("#repTo").value = new Date().toISOString().slice(0,10);
-  };
+  // Pull data (only compute what we need)
+  const tasks = sections.tasks ? alive(state.tasks).filter(t=>t.projectId===projectId && isAlive(t)) : [];
+  const diary = sections.diary ? alive(state.diary).filter(d=>d.projectId===projectId && isAlive(d)).filter(d=> inRange(d.date)).sort((a,b)=>(a.date||"").localeCompare(b.date||"")) : [];
+  const vars = sections.variations ? alive(state.variations).filter(v=>v.projectId===projectId && isAlive(v)).filter(v=> inRange(v.date||"")) : [];
+  const delivs = sections.deliveries ? alive(state.deliveries).filter(d=>d.projectId===projectId && isAlive(d)).filter(d=> inRange(d.date||"")) : [];
+  const insps = sections.inspections ? alive(state.inspections).filter(i=>i.projectId===projectId && isAlive(i)).filter(i=> inRange(i.date||"")) : [];
+  const leads = sections.leads ? alive(state.leads).filter(l=>l.projectId===projectId && isAlive(l)).filter(l=> inRange(l.date||l.createdAt||"") || allTime) : [];
 
-  $("#repCancel").onclick = ()=> closeModal();
+  // Programme tasks/history
+  const programmeTasks = sections.programme ? aliveArr(state.programmeTasks).filter(t=>t.projectId===projectId && isAlive(t)) : [];
+  const programmeStats = sections.programme ? aliveArr(state.programmeHistoryStats).filter(s=>s.projectId===projectId && isAlive(s)).filter(s=> inRange(s.date||"") || allTime) : [];
 
-  // All / none controls
-  $("#rep_all").onchange = ()=> setAll($("#rep_all").checked);
-  $("#repNone").onclick = ()=> setAll(false);
-  sections.forEach(([k])=>{
-    const el = document.getElementById("rep_"+k);
-    if(!el) return;
-    el.onchange = ()=>{
-      const all = sections.every(([kk])=> document.getElementById("rep_"+kk)?.checked);
-      const any = sections.some(([kk])=> document.getElementById("rep_"+kk)?.checked);
-      const a = document.getElementById("rep_all");
-      if(a) a.checked = all && any;
-    };
-  });
+  // Equipment/Fleet logs (best-effort - schema varies)
+  const equipment = sections.equipment ? aliveArr(state.equipment).filter(e=> (e.projectId===projectId || e.assignedProjectId===projectId) && isAlive(e)) : [];
+  const equipmentLogs = sections.equipment ? aliveArr(state.equipmentLogs).filter(l=> l.projectId===projectId && isAlive(l)).filter(l=> inRange(l.date||l.createdAt||"") || allTime) : [];
 
-  $("#repGo").onclick = ()=>{
-    const from = ($("#repFrom").value || rangeFrom);
-    const to = ($("#repTo").value || rangeTo);
+  const fleet = sections.fleet ? aliveArr(state.fleet).filter(v=> (v.projectId===projectId || v.assignedProjectId===projectId) && isAlive(v)) : [];
+  const fleetLogs = sections.fleet ? aliveArr(state.fleetLogs).filter(l=> l.projectId===projectId && isAlive(l)).filter(l=> inRange(l.date||l.createdAt||"") || allTime) : [];
 
-    const sel = {};
-    sections.forEach(([k])=>{
-      sel[k] = !!document.getElementById("rep_"+k)?.checked;
-    });
+  const activity = sections.activity ? aliveArr(state.activityLog).filter(a=> (a.projectId===projectId || a.pid===projectId) && isAlive(a)).filter(a=> inRange(a.date||a.createdAt||"") || allTime) : [];
 
-    closeModal();
-    runReportUI(projectId, from, to, sel);
-  };
-}
-function runReportUI(projectId, from=null, to=null, opts=null){
-  opts = opts || { overview:true, programme:true, tasks:true, diary:true, variations:true, deliveries:true, inspections:true, subbies:true, includeDoneTasks:false };
+  // --- Build sections HTML ---
+  const blocks = [];
 
-  const isAll = projectId === "__ALL__";
-  const p = isAll ? null : projectById(projectId);
-  if(!isAll && !p) return;
-  const rangeFrom = from || new Date(Date.now()-7*86400000).toISOString().slice(0,10);
-  const rangeTo = to || new Date().toISOString().slice(0,10);
-
-  const tasks = alive(state.tasks).filter(t=>t.projectId===projectId && isAlive(t));
-  const diary = alive(state.diary).filter(d=>d.projectId===projectId && isAlive(d)).filter(d=>d.date>=rangeFrom && d.date<=rangeTo).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
-  const vars = alive(state.variations).filter(v=>v.projectId===projectId && isAlive(v)).filter(v=> (v.date||"")>=rangeFrom && (v.date||"")<=rangeTo);
-  const delivs = alive(state.deliveries).filter(d=>d.projectId===projectId && isAlive(d)).filter(d=> (d.date||"")>=rangeFrom && (d.date||"")<=rangeTo);
-  const insps = alive(state.inspections).filter(i=>i.projectId===projectId && isAlive(i)).filter(i=> (i.date||"")>=rangeFrom && (i.date||"")<=rangeTo);
-
-  const html = `
+  // Header / cover
+  blocks.push(`
     <div class="card printOnly" style="padding:18px">
       <div style="display:flex; gap:14px; align-items:center">
         <img src="./logo.png" alt="logo" style="height:44px; width:auto"/>
@@ -5654,180 +5593,258 @@ function runReportUI(projectId, from=null, to=null, opts=null){
         </div>
       </div>
     </div>
+  `);
 
+  // Report top card
+  blocks.push(`
     <div class="card">
       <div class="row space">
-        <h2>Project Report</h2>
+        <h2>Job Report</h2>
         <div class="row noPrint">
           <button class="btn" id="copyLink" type="button">Copy</button>
           <button class="btn primary" id="printBtn" type="button">Print / Save PDF</button>
         </div>
       </div>
-      <div class="sub">${escapeHtml(p.name)} • ${escapeHtml(p.address||"")}<br/>Period: ${dateFmt(rangeFrom)} → ${dateFmt(rangeTo)}</div>
-      <hr/>
+      <div class="sub">${escapeHtml(p.name)} • ${escapeHtml(p.address||"")}<br/>Period: ${allTime ? "All time" : `${dateFmt(rangeFrom)} → ${dateFmt(rangeTo)}`}</div>
+    </div>
+  `);
 
-      ${opts.overview ? `
-        <h2>Project overview</h2>
-        <table>
-          <tbody>
-            <tr><th>Stage</th><td>${escapeHtml(p.stage||"")}</td></tr>
-            <tr><th>Status</th><td>${escapeHtml(p.status||"")}</td></tr>
-            <tr><th>Client</th><td>${escapeHtml(p.clientName||"")}</td></tr>
-            <tr><th>Phone</th><td>${escapeHtml(p.clientPhone||"")}</td></tr>
-            <tr><th>Email</th><td>${escapeHtml(p.clientEmail||"")}</td></tr>
-            <tr><th>Notes</th><td>${escapeHtml(p.notes||"")}</td></tr>
-            <tr><th>Google photos</th><td>${escapeHtml(p.googlePhotos||"")}</td></tr>
-            <tr><th>Google docs</th><td>${escapeHtml(p.googleDocs||"")}</td></tr>
-          </tbody>
-        </table>
-        <hr/>
-      ` : ""}
+  if(sections.summary){
+    const rows = [];
+    const add = (label, val)=>{ if(val!==undefined && val!==null && String(val).trim()!=="") rows.push(`<tr><th style="text-align:left; width:170px">${escapeHtml(label)}</th><td>${escapeHtml(String(val))}</td></tr>`); };
+    add("Project", p.name);
+    add("Address", p.address);
+    add("Status", p.status);
+    add("Client", p.clientName || p.client);
+    add("Client phone", p.clientPhone || p.phone);
+    add("Client email", p.clientEmail || p.email);
+    add("Start date", p.startDate ? dateFmt(p.startDate) : "");
+    add("Due date", p.dueDate ? dateFmt(p.dueDate) : "");
+    add("Notes", p.notes);
+    blocks.push(`
+      <div class="card">
+        <h2>Project summary</h2>
+        ${rows.length ? `<table><tbody>${rows.join("")}</tbody></table>` : `<div class="sub">No project details saved.</div>`}
+      </div>
+    `);
+  }
 
-      ${opts.programme ? `
-        <h2>Programme</h2>
-        ${(()=>{
-          try{
-            const mode = p.programmeMode || "template";
-            if(mode==="custom" && Array.isArray(p.customProgramme) && p.customProgramme.length){
-              const sch = computeCustomProgrammeSchedule(p);
-              return `
-                <div class="sub">Custom programme • Start ${escapeHtml(p.programmeStartDate||"")}</div>
-                <table>
-                  <thead><tr><th>Section</th><th>Start</th><th>End</th><th>Days</th></tr></thead>
-                  <tbody>
-                    ${sch.map(s=>`<tr><td>${escapeHtml(s.title||"")}</td><td>${escapeHtml(dateFmt(s.plannedStart||""))}</td><td>${escapeHtml(dateFmt(s.plannedEnd||""))}</td><td>${escapeHtml(String(s.days||""))}</td></tr>`).join("")}
-                  </tbody>
-                </table>
-              `;
-            }else{
-              const pt = alive(state.programmeTasks).filter(t=>t.projectId===p.id && isAlive(t));
-              if(pt.length){
-                return `
-                  <div class="sub">Template programme • Start ${escapeHtml(p.programmeStartDate||"")}</div>
-                  <table>
-                    <thead><tr><th>Phase</th><th>Start</th><th>End</th><th>Days</th></tr></thead>
-                    <tbody>
-                      ${pt.map(t=>`<tr><td>${escapeHtml(t.title||"")}</td><td>${t.plannedStart?escapeHtml(dateFmt(t.plannedStart)):""}</td><td>${t.plannedEnd?escapeHtml(dateFmt(t.plannedEnd)):""}</td><td>${escapeHtml(String(t.totalDays||""))}</td></tr>`).join("")}
-                    </tbody>
-                  </table>
-                `;
-              }
-              return `<div class="sub">No programme items found.</div>`;
-            }
-          }catch(e){
-            return `<div class="sub">Programme could not be rendered.</div>`;
-          }
-        })()}
-        <hr/>
-      ` : ""}
-
-      ${opts.diary ? `
+  if(sections.diary){
+    blocks.push(`
+      <div class="card">
         <h2>Diary</h2>
-        ${diary.length ? diary.map(d=>`
-          <div class="item">
-            <div class="row space">
-              <div><strong>${dateFmt(d.date)}</strong> ${d.billable?`<span class="badge ok">Billable</span>`:`<span class="badge">Non‑billable</span>`} ${d.hours?`<span class="badge">⏱ ${escapeHtml(String(d.hours))}h</span>`:""}</div>
-              <div class="smallmuted">${escapeHtml(d.category||"")}${d.createdByName ? (" • " + escapeHtml(d.createdByName)) : ""}</div>
+        ${diary.length ? diary.map(d=>{
+          const who = d.enteredBy || d.workerName || d.createdBy || d.user || "";
+          const whoBadge = who ? `<span class="badge">👤 ${escapeHtml(String(who))}</span>` : "";
+          return `
+            <div class="item">
+              <div class="row space">
+                <div>
+                  <strong>${dateFmt(d.date)}</strong>
+                  ${d.billable?`<span class="badge ok">Billable</span>`:`<span class="badge">Non‑billable</span>`}
+                  ${d.hours?`<span class="badge">⏱ ${escapeHtml(String(d.hours))}h</span>`:""}
+                  ${whoBadge}
+                </div>
+                <div class="smallmuted">${escapeHtml(d.category||"")}</div>
+              </div>
+              <div class="meta">${escapeHtml(d.summary||"")}</div>
             </div>
-            <div class="meta">${escapeHtml(d.summary||"")}</div>
-          </div>
-        `).join("") : `<div class="sub">No diary entries in range.</div>`}
-        <hr/>
-      ` : ""}
-
-      ${opts.tasks ? `
-        <h2>Tasks</h2>
-        ${(()=>{
-          const open = tasks.filter(t=>t.status!=="Done");
-          const done = tasks.filter(t=>t.status==="Done");
-          const rows = (arr)=>`
-            <table>
-              <thead><tr><th>Task</th><th>Status</th><th>Due</th><th>Assigned</th></tr></thead>
-              <tbody>
-                ${arr.map(t=>{
-                  const s = t.assignedSubbieId ? subbieById(t.assignedSubbieId) : null;
-                  return `<tr><td>${escapeHtml(t.title)}</td><td>${escapeHtml(t.status||"")}</td><td>${t.dueDate?escapeHtml(dateFmt(t.dueDate)):""}</td><td>${s?escapeHtml(s.name):""}</td></tr>`;
-                }).join("")}
-              </tbody>
-            </table>
           `;
-          let out = open.length ? rows(open) : `<div class="sub">No open tasks.</div>`;
-          if(opts.includeDoneTasks){
-            out += `<div style="height:10px"></div><h3>Completed tasks</h3>` + (done.length ? rows(done) : `<div class="sub">No completed tasks.</div>`);
-          }
-          return out;
-        })()}
-        <hr/>
-      ` : ""}
+        }).join("") : `<div class="sub">No diary entries${allTime ? "." : " in range."}</div>`}
+      </div>
+    `);
+  }
 
-      ${opts.variations ? `
+  if(sections.tasks){
+    const openTasks = tasks.filter(t=> (t.status||"")!=="Done");
+    const doneTasks = tasks.filter(t=> (t.status||"")==="Done");
+    const renderTaskTable = (arr)=> arr.length ? `
+      <table>
+        <thead><tr><th>Task</th><th>Status</th><th>Due</th><th>Assigned</th></tr></thead>
+        <tbody>
+          ${arr.map(t=>{
+            const s = t.assignedSubbieId ? subbieById(t.assignedSubbieId) : null;
+            return `<tr><td>${escapeHtml(t.title||"")}</td><td>${escapeHtml(t.status||"")}</td><td>${t.dueDate?escapeHtml(dateFmt(t.dueDate)):""}</td><td>${s?escapeHtml(s.name):escapeHtml(t.assignedTo||"")}</td></tr>`;
+          }).join("")}
+        </tbody>
+      </table>` : `<div class="sub">None.</div>`;
+    blocks.push(`
+      <div class="card">
+        <h2>Tasks</h2>
+        <div class="sub">Open</div>
+        ${renderTaskTable(openTasks)}
+        <hr/>
+        <div class="sub">Completed</div>
+        ${renderTaskTable(doneTasks)}
+      </div>
+    `);
+  }
+
+  if(sections.variations){
+    blocks.push(`
+      <div class="card">
         <h2>Variations</h2>
         ${vars.length ? `
           <table>
             <thead><tr><th>Title</th><th>Status</th><th>Date</th><th>Amount</th></tr></thead>
             <tbody>
-              ${vars.map(v=>`<tr><td>${escapeHtml(v.title)}</td><td>${escapeHtml(v.status||"")}</td><td>${v.date?escapeHtml(dateFmt(v.date)):""}</td><td>${v.amount?escapeHtml(money(v.amount)):""}</td></tr>`).join("")}
+              ${vars.map(v=>`<tr><td>${escapeHtml(v.title||"")}</td><td>${escapeHtml(v.status||"")}</td><td>${v.date?escapeHtml(dateFmt(v.date)):""}</td><td>${v.amount?escapeHtml(money(v.amount)):""}</td></tr>`).join("")}
             </tbody>
-          </table>` : `<div class="sub">No variations in range.</div>`}
-        <hr/>
-      ` : ""}
+          </table>` : `<div class="sub">No variations${allTime ? "." : " in range."}</div>`}
+      </div>
+    `);
+  }
 
-      ${opts.deliveries ? `
+  if(sections.deliveries){
+    blocks.push(`
+      <div class="card">
         <h2>Deliveries</h2>
         ${delivs.length ? `
           <table>
             <thead><tr><th>Supplier</th><th>Date</th><th>Status</th><th>Items</th></tr></thead>
             <tbody>
-              ${delivs.map(d=>`<tr><td>${escapeHtml(d.supplier||"")}</td><td>${d.date?escapeHtml(dateFmt(d.date)):""}</td><td>${escapeHtml(d.status||"")}</td><td>${escapeHtml((d.items||"").slice(0,240))}</td></tr>`).join("")}
+              ${delivs.map(d=>`<tr><td>${escapeHtml(d.supplier||"")}</td><td>${d.date?escapeHtml(dateFmt(d.date)):""}</td><td>${escapeHtml(d.status||"")}</td><td>${escapeHtml((d.items||"").slice(0,180))}</td></tr>`).join("")}
             </tbody>
-          </table>` : `<div class="sub">No deliveries in range.</div>`}
-        <hr/>
-      ` : ""}
+          </table>` : `<div class="sub">No deliveries${allTime ? "." : " in range."}</div>`}
+      </div>
+    `);
+  }
 
-      ${opts.inspections ? `
+  if(sections.inspections){
+    blocks.push(`
+      <div class="card">
         <h2>Inspections</h2>
         ${insps.length ? `
           <table>
             <thead><tr><th>Type</th><th>Date</th><th>Result</th><th>Notes</th></tr></thead>
             <tbody>
-              ${insps.map(i=>`<tr><td>${escapeHtml(i.type||"")}</td><td>${i.date?escapeHtml(dateFmt(i.date)):""}</td><td>${escapeHtml(i.result||"")}</td><td>${escapeHtml((i.notes||"").slice(0,240))}</td></tr>`).join("")}
+              ${insps.map(i=>`<tr><td>${escapeHtml(i.type||"")}</td><td>${i.date?escapeHtml(dateFmt(i.date)):""}</td><td>${escapeHtml(i.result||"")}</td><td>${escapeHtml((i.notes||"").slice(0,180))}</td></tr>`).join("")}
             </tbody>
-          </table>` : `<div class="sub">No inspections in range.</div>`}
-        <hr/>
-      ` : ""}
+          </table>` : `<div class="sub">No inspections${allTime ? "." : " in range."}</div>`}
+      </div>
+    `);
+  }
 
-      ${opts.subbies ? `
-        <h2>Subbies</h2>
-        ${(()=>{
-          const subs = alive(state.subbies).filter(s=>isAlive(s));
-          if(!subs.length) return `<div class="sub">No subbies recorded.</div>`;
-          return `
-            <table>
-              <thead><tr><th>Name</th><th>Trade</th><th>Phone</th><th>Email</th></tr></thead>
-              <tbody>
-                ${subs.map(s=>`<tr><td>${escapeHtml(s.name||"")}</td><td>${escapeHtml(s.trade||"")}</td><td>${escapeHtml(s.phone||"")}</td><td>${escapeHtml(s.email||"")}</td></tr>`).join("")}
-              </tbody>
-            </table>
-          `;
-        })()}
-        <hr/>
-      ` : ""}
+  if(sections.leads){
+    blocks.push(`
+      <div class="card">
+        <h2>Leads</h2>
+        ${leads.length ? `
+          <table>
+            <thead><tr><th>Date</th><th>Name</th><th>Stage</th><th>Notes</th></tr></thead>
+            <tbody>
+              ${leads.map(l=>`<tr><td>${escapeHtml(l.date?dateFmt(l.date):"")}</td><td>${escapeHtml(l.name||"")}</td><td>${escapeHtml(l.stage||l.status||"")}</td><td>${escapeHtml((l.notes||l.summary||"").slice(0,180))}</td></tr>`).join("")}
+            </tbody>
+          </table>` : `<div class="sub">No leads${allTime ? "." : " in range."}</div>`}
+      </div>
+    `);
+  }
 
+  if(sections.programme){
+    blocks.push(`
+      <div class="card">
+        <h2>Programme</h2>
+        ${programmeTasks.length ? `
+          <table>
+            <thead><tr><th>Task</th><th>Phase</th><th>Status</th><th>Start</th><th>Due</th></tr></thead>
+            <tbody>
+              ${programmeTasks.map(t=>`<tr><td>${escapeHtml(t.name||t.title||"")}</td><td>${escapeHtml(t.phase||"")}</td><td>${escapeHtml(t.status||"")}</td><td>${t.startDate?escapeHtml(dateFmt(t.startDate)):""}</td><td>${t.dueDate?escapeHtml(dateFmt(t.dueDate)):""}</td></tr>`).join("")}
+            </tbody>
+          </table>` : `<div class="sub">No programme tasks saved.</div>`}
+        ${programmeStats.length ? `
+          <hr/>
+          <div class="sub">History / snapshots</div>
+          <table>
+            <thead><tr><th>Date</th><th>Summary</th></tr></thead>
+            <tbody>
+              ${programmeStats.map(s=>`<tr><td>${escapeHtml(s.date?dateFmt(s.date):"")}</td><td>${escapeHtml((s.summary||JSON.stringify(s)).slice(0,220))}</td></tr>`).join("")}
+            </tbody>
+          </table>` : ``}
+      </div>
+    `);
+  }
+
+  if(sections.equipment){
+    blocks.push(`
+      <div class="card">
+        <h2>Equipment</h2>
+        ${equipment.length ? `
+          <table>
+            <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Notes</th></tr></thead>
+            <tbody>
+              ${equipment.map(e=>`<tr><td>${escapeHtml(e.name||"")}</td><td>${escapeHtml(e.type||"")}</td><td>${escapeHtml(e.status||"")}</td><td>${escapeHtml((e.notes||"").slice(0,160))}</td></tr>`).join("")}
+            </tbody>
+          </table>` : `<div class="sub">No equipment linked to this project.</div>`}
+        ${equipmentLogs.length ? `
+          <hr/>
+          <div class="sub">Logs</div>
+          <table>
+            <thead><tr><th>Date</th><th>Item</th><th>Entry</th></tr></thead>
+            <tbody>
+              ${equipmentLogs.map(l=>`<tr><td>${escapeHtml(l.date?dateFmt(l.date):"")}</td><td>${escapeHtml(l.item||l.equipmentName||"")}</td><td>${escapeHtml((l.notes||l.entry||l.summary||"").slice(0,200))}</td></tr>`).join("")}
+            </tbody>
+          </table>` : ``}
+      </div>
+    `);
+  }
+
+  if(sections.fleet){
+    blocks.push(`
+      <div class="card">
+        <h2>Fleet</h2>
+        ${fleet.length ? `
+          <table>
+            <thead><tr><th>Vehicle</th><th>Rego</th><th>Status</th><th>Notes</th></tr></thead>
+            <tbody>
+              ${fleet.map(v=>`<tr><td>${escapeHtml(v.name||v.vehicle||"")}</td><td>${escapeHtml(v.rego||"")}</td><td>${escapeHtml(v.status||"")}</td><td>${escapeHtml((v.notes||"").slice(0,160))}</td></tr>`).join("")}
+            </tbody>
+          </table>` : `<div class="sub">No fleet items linked to this project.</div>`}
+        ${fleetLogs.length ? `
+          <hr/>
+          <div class="sub">Logs</div>
+          <table>
+            <thead><tr><th>Date</th><th>Vehicle</th><th>Entry</th></tr></thead>
+            <tbody>
+              ${fleetLogs.map(l=>`<tr><td>${escapeHtml(l.date?dateFmt(l.date):"")}</td><td>${escapeHtml(l.vehicle||l.name||"")}</td><td>${escapeHtml((l.notes||l.entry||l.summary||"").slice(0,200))}</td></tr>`).join("")}
+            </tbody>
+          </table>` : ``}
+      </div>
+    `);
+  }
+
+  if(sections.activity){
+    blocks.push(`
+      <div class="card">
+        <h2>Activity log</h2>
+        ${activity.length ? `
+          <table>
+            <thead><tr><th>Date</th><th>Action</th><th>Details</th></tr></thead>
+            <tbody>
+              ${activity.sort((a,b)=>(a.date||a.createdAt||"").localeCompare(b.date||b.createdAt||"")).map(a=>`<tr><td>${escapeHtml(a.date?dateFmt(a.date):(a.createdAt?dateFmt(a.createdAt):""))}</td><td>${escapeHtml(a.action||a.type||"")}</td><td>${escapeHtml((a.details||a.note||a.summary||"").slice(0,220))}</td></tr>`).join("")}
+            </tbody>
+          </table>` : `<div class="sub">No activity logged${allTime ? "." : " in range."}</div>`}
+      </div>
+    `);
+  }
+
+  // Footer
+  blocks.push(`
+    <div class="card">
       <div class="smallmuted">Generated ${new Date().toLocaleString("en-NZ")}</div>
     </div>
-  `;
+  `);
 
-  // open in same app as modal with print
+  const html = blocks.join("\n");
+
   showModal(html);
   $("#copyLink").onclick = async ()=>{
     try{
-      await navigator.clipboard.writeText(`Job Report: ${p.name} (${rangeFrom} to ${rangeTo})`);
+      await navigator.clipboard.writeText(`Job Report: ${p.name} (${allTime ? "All time" : (rangeFrom + " to " + rangeTo)})`);
       alert("Copied.");
     }catch(e){ alert("Copy failed."); }
   };
   $("#printBtn").onclick = ()=> printModalOnly("Job Report");
 }
-
 
 function runHnryExportUI(projectId, from=null, to=null){
   const rangeFrom = from || new Date(Date.now()-7*86400000).toISOString().slice(0,10);
@@ -6439,17 +6456,6 @@ function leadCard(l){
         </div>
       </div>
     </div>
-
-      <div class="card" style="margin-top:12px">
-        <div class="row space"><div class="h3">Service Worker Tools</div><div class="sub">If updates get stuck</div></div>
-        <div class="row" style="gap:10px; flex-wrap:wrap; margin-top:10px">
-          <button class="btn" id="btnShowBuild" type="button">Show build</button>
-          <button class="btn" id="btnUnregisterSW" type="button">Unregister SW</button>
-          <button class="btn danger" id="btnNukeCaches" type="button">Clear caches + reload</button>
-        </div>
-        <div class="smallmuted" style="margin-top:8px">Build: ${BUILD_ID}</div>
-      </div>
-
 `;
 }
 
