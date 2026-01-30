@@ -2491,6 +2491,7 @@ function showModal(html){
 function closeModal(){
   $("#modalBack").classList.remove("show");
   $("#modal").innerHTML = "";
+}
 
 // === Numeric PIN Modal (forces numeric keypad on mobile) ===
 function promptPinModal(title, message){
