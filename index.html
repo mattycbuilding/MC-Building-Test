@@ -65,7 +65,7 @@
 </script>
 
   <script src="./sync-config.js?v=20260129204500"></script>
-<script src="./app.js?v=202601300622"></script>
+<script src="./app.js?v=20260129204500"></script>
 
 
 
@@ -95,17 +95,6 @@ document.addEventListener("click",()=>{
   window.addEventListener('unhandledrejection', (e)=>{ show(String(e.reason||e)); });
 })();
 </script>
-
-
-<!-- Worker Select Modal -->
-<div id="workerSelectModal" class="modal">
-  <div class="modal-content">
-    <h3>Select Worker</h3>
-    <button onclick="setWorker('Worker A')">Worker A</button>
-    <button onclick="setWorker('Worker B')">Worker B</button>
-    <button onclick="this.closest('.modal').classList.remove('open')">Close</button>
-  </div>
-</div>
 
 </body>
 

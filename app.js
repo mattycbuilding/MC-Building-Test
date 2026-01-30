@@ -1,8 +1,6 @@
 
 
-window.__modalLocked = false;
-
-const BUILD_ID = "mcb-build-20260130-LOCKPICK-NUMPAD";
+const BUILD_ID = "mcb-build-20260130-WorkerKioskKeypad";
 
 // === HARDWIRED SYNC CONFIG (loaded from sync-config.js) ===
 const __SYNC_CFG = (typeof window !== "undefined" && window.SYNC_CONFIG) ? window.SYNC_CONFIG : {};
@@ -1693,7 +1691,6 @@ async function openWorkerGateOnLaunch(){
     workers.forEach(w=>{ workerById[String(w.id)] = w; });
 
     const showMasterSettingsGate = ()=>{
-      window.__modalLocked = false;
       openModal(`
         <div class="row space">
           <h2>Master PIN</h2>
@@ -1704,15 +1701,12 @@ async function openWorkerGateOnLaunch(){
         </div>
         <div style="margin-top:12px" class="card">
           <label class="label">Master PIN</label>
-          <input class="input pinInput" id="wm_master_pin" type="tel" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="Enter master PIN" />
+          <input class="input" id="wm_master_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter master PIN" />
           <div class="row" style="gap:10px; margin-top:10px">
             <button class="btn primary" id="wm_unlock_settings" type="button">Continue</button>
           </div>
         </div>
       `);
-      const mp = document.getElementById("wm_master_pin");
-      _ensurePinInput(mp);
-
       const btn = document.getElementById("wm_unlock_settings");
       if(btn){
         btn.onclick = async ()=>{
@@ -1807,7 +1801,7 @@ async function openWorkerGateOnLaunch(){
         <div class="sub" style="margin-top:6px">Enter your PIN to continue.</div>
         <div class="card" style="margin-top:12px">
           <label class="label">Worker PIN</label>
-          <input class="input pinInput" id="wm_worker_pin" type="tel" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="Enter your PIN" />
+          <input class="input" id="wm_worker_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter your PIN" />
           <div class="row" style="gap:10px; margin-top:10px">
             <button class="btn primary" id="wm_login" type="button">Login</button>
             <button class="btn" id="wm_settings_only" type="button">Settings (Master)</button>
@@ -1815,9 +1809,6 @@ async function openWorkerGateOnLaunch(){
           ${!String(w.pinHash||"").trim() ? `<div class="smallmuted" style="margin-top:8px">No PIN set for this worker yet. Use Settings (Master) to set one.</div>` : ``}
         </div>
       `);
-
-      const pinEl = document.getElementById("wm_worker_pin");
-      _ensurePinInput(pinEl);
 
       const back = document.getElementById("wm_back");
       if(back) back.onclick = ()=>showWorkerSelect();
@@ -1837,7 +1828,6 @@ async function openWorkerGateOnLaunch(){
           if(!ok){ alert("Incorrect PIN."); return; }
           __settingsOnlyUnlocked = false;
           setCurrentWorker(String(workerId));
-          window.__modalLocked = false;
           closeModal();
           render();
           updateNavVisibility();
@@ -1846,7 +1836,6 @@ async function openWorkerGateOnLaunch(){
     };
 
     const showWorkerSelect = ()=>{
-      window.__modalLocked = true;
       const rows = workers.map(w=>`
         <button class="listItem" type="button" data-wm-launch-pick="${escapeAttr(w.id)}">
           <div class="row space">
@@ -1880,17 +1869,497 @@ async function openWorkerGateOnLaunch(){
     showWorkerSelect();
   }
 }
-
-function _ensurePinInput(el){
-  if(!el) return;
-  try{ el.focus(); }catch(e){}
-  el.addEventListener("input", ()=>{ el.value = String(el.value||"").replace(/[^0-9]/g,""); });
-}
 function openWorkerPicker(opts={}){
-  // Unified picker: always use the kiosk-style worker selection with numeric PIN modal
-  openWorkerModeOnLaunch();
+  ensureWorkerSettings();
+  const requirePin = !!(settings.workerMode && settings.workerMode.requirePin);
+  const workers = (settings.workers||[]).slice();
+  const rows = workers.map(w=>{
+    const badge = w.isAdmin ? `<span class="badge">Admin</span>` : ``;
+    const blocked = w.blocked ? `<span class="badge danger">Blocked</span>` : ``;
+    return `
+      <button class="workerTile" type="button" data-worker-pick="${escapeAttr(w.id)}" ${w.blocked ? "disabled":""}>
+        <div class="name">${escapeHtml(w.name||"Worker")} ${badge} ${blocked}</div>
+        <div class="meta">${w.blocked ? "Access blocked" : (w.isAdmin ? "Full access" : "Restricted access")}</div>
+      </button>
+    `;
+}).join("");
+
+  openModalLocked(`
+    <div class="row space">
+      <h2>${opts.title || "Select worker"}</h2>
+      
+    </div>
+    <div class="sub" style="margin-top:6px">${workerModeEnabled() ? "Worker mode is ON." : "Worker mode is OFF."}</div>
+    ${requirePin ? `<div class="smallmuted" style="margin-top:6px">PIN required (if set for the profile).</div>` : ``}
+    <div class="workerTileGrid">${rows || `<div class="sub">No workers yet. Add one in Profile Setup.</div>`}</div>
+  `);
+
+  const modal = document.getElementById("modal");
+  if(modal){
+    modal.querySelectorAll("[data-worker-pick]").forEach(btn=>{
+      btn.onclick = async ()=>{
+        const id = btn.getAttribute("data-worker-pick");
+        const w = (settings.workers||[]).find(x=>x && x.id===id);
+        if(!w) return;
+        if(w.blocked){
+          alert("This user is blocked.");
+          return;
+        }
+        if(requirePin){
+          // Profile Setup must ALWAYS require the Master PIN (even if its pinHash was overwritten by sync)
+          if(String(w.id||"")===PROFILE_SETUP_ID || w.isSetup){
+                      const pin = await promptPinPadModal({ title: "Enter Master PIN", subtitle: "13 digits required", expectedLen: 13, allowCancel: true });
+            if(pin === null) return;
+            if(!String(pin).trim()){ alert("PIN is required."); return; }
+            const ok = await verifyWorkerMasterPin(pin);
+            if(!ok){ alert("Incorrect PIN."); return; }
+          }
+          // If global/master PIN is enabled, use it for all worker selection.
+          else if(settings.workerMode && settings.workerMode.globalPin){
+                      const pin = await promptPinPadModal({ title: "Enter Master PIN", subtitle: "13 digits required", expectedLen: 13, allowCancel: true });
+            if(pin === null) return;
+            const ok = await verifyWorkerMasterPin(pin);
+            if(!ok){ alert("Incorrect PIN."); return; }
+          }else if((w.pinHash||"").trim()){
+                        const pin = await promptPinPadModal({ title: `Enter PIN for ${w.name}`, subtitle: "4 digits required", expectedLen: 4, allowCancel: true });
+            if(pin === null) return;
+            if(!String(pin).trim()){ alert("PIN is required."); return; }
+            const ok = await verifyWorkerPin(w, pin);
+            if(!ok){ alert("Incorrect PIN."); return; }
+          }else{
+            alert("This worker does not have a PIN set yet. Ask an Admin to set one.");
+            return;
+          }
+        }
+        setCurrentWorker(id);
+        closeModal();
+        render();
+      };
+    });
+  }
 }
 
+async function verifyWorkerModeDeactivationPin(){
+  // Require an Admin PIN (preferred) to disable Worker mode.
+  // This prevents a restricted worker from disabling restrictions.
+  ensureWorkerSettings();
+  const workers = (settings.workers||[]);
+  const adminHashes = workers
+    .filter(w=>w && w.isAdmin && !w.blocked && String(w.pinHash||"").trim())
+    .map(w=>w.pinHash);
+
+  if(adminHashes.length){
+        const pin = await promptPinPadModal({ title: "Enter Admin PIN", subtitle: "4 digits required", expectedLen: 4, allowCancel: true });
+    if(pin === null) return false;
+    const ph = await hashPin(String(pin).trim());
+    const ok = adminHashes.some(h=>String(h||"").trim() === ph);
+    if(!ok) alert("Incorrect PIN.");
+    return ok;
+  }
+
+  // Fallback: if the current worker is an Admin with a PIN set, allow that.
+  const cw = currentWorker();
+  if(cw && cw.isAdmin && String(cw.pinHash||"").trim()){
+        const pin = await promptPinPadModal({ title: `Enter PIN for ${cw.name}`, subtitle: "4 digits required", expectedLen: 4, allowCancel: true });
+    if(pin === null) return false;
+    const ok = await verifyWorkerPin(cw, pin);
+    if(!ok) alert("Incorrect PIN.");
+    return ok;
+  }
+
+  alert("No Admin PIN is set. Set an Admin PIN in Settings → Worker profiles before Worker mode can be disabled.");
+  return false;
+}
+
+
+function updateNavVisibility(){
+  // Footer nav buttons
+  const footerButtons = document.querySelectorAll('.footerbar .nav .btn[data-nav]');
+  footerButtons.forEach(b=>{
+    const r = b.getAttribute("data-nav");
+    const mod = routeToModule(r||"");
+    const ok = canView(mod);
+    b.style.display = ok ? "" : "none";
+  });
+
+  // Header dropdown items
+  const dropItems = document.querySelectorAll('#navDropdownList [data-nav]');
+  dropItems.forEach(b=>{
+    const r = b.getAttribute("data-nav");
+    if(r==="switchWorker") return;
+    const mod = routeToModule(r||"");
+    const ok = canView(mod);
+    b.style.display = ok ? "" : "none";
+  });
+
+  // Update header title suffix
+  try{
+    const ht = document.getElementById("headerTitle");
+    if(ht){
+      const base = "MCB Site Manager";
+      if(workerModeEnabled()){
+        const w = currentWorker();
+        ht.textContent = w ? `${base} — ${w.name}` : base;
+      }else{
+        ht.textContent = base;
+      }
+    }
+  }catch(e){}
+}
+
+
+function _renderWorkerList(){
+  const list = document.getElementById("wm_list");
+  if(!list) return;
+  ensureWorkerSettings();
+  const workers = (settings.workers||[]);
+  const activeId = settings.workerMode?.currentWorkerId || "";
+  if(!workers.length){
+    list.innerHTML = `<div class="sub">No workers yet.</div>`;
+    return;
+  }
+  list.innerHTML = workers.map(w=>{
+    const badge = w.isAdmin ? `<span class="badge">Admin</span>` : `<span class="badge muted">Worker</span>`;
+    const blocked = w.blocked ? `<span class="badge danger">Blocked</span>` : ``;
+    const active = (w.id===activeId) ? `<span class="badge ok">Active</span>` : ``;
+    return `
+      <div class="listItem">
+        <div class="row space">
+          <div>
+            <div class="row" style="gap:8px; align-items:center"><b>${escapeHtml(w.name||"Worker")}</b>${badge}${blocked}${active}</div>
+            <div class="sub">${w.blocked ? "Access blocked" : (w.isAdmin ? "Full access" : "Restricted access")}</div>
+          </div>
+          <div class="row" style="gap:8px">
+            <button class="btn ghost sm" type="button" data-wm-set="${escapeAttr(w.id)}" ${w.blocked ? "disabled":""}>Use</button>
+            <button class="btn ghost sm" type="button" data-wm-edit="${escapeAttr(w.id)}">Edit</button>
+            <button class="btn danger sm" type="button" data-wm-del="${escapeAttr(w.id)}">Delete</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  list.querySelectorAll("[data-wm-set]").forEach(b=>{
+    b.onclick = ()=>{
+      const id = b.getAttribute("data-wm-set");
+      setCurrentWorker(id);
+      _renderWorkerList();
+      alert("Active worker set.");
+    };
+  });
+  list.querySelectorAll("[data-wm-edit]").forEach(b=>{
+    b.onclick = ()=>{
+      const id = b.getAttribute("data-wm-edit");
+      const w = (settings.workers||[]).find(x=>x && x.id===id);
+      if(w) openWorkerEditModal(w);
+    };
+  });
+  list.querySelectorAll("[data-wm-del]").forEach(b=>{
+    b.onclick = ()=>{
+      const id = b.getAttribute("data-wm-del");
+      const w = (settings.workers||[]).find(x=>x && x.id===id);
+      if(!w) return;
+      if(w.isAdmin){
+        const admins = (settings.workers||[]).filter(x=>x && x.isAdmin);
+        if(admins.length<=1){
+          alert("You need at least one Admin profile.");
+          return;
+        }
+      }
+      if(!confirm(`Delete worker: ${w.name}?`)) return;
+      settings.workers = (settings.workers||[]).filter(x=>x && x.id!==id);
+      if(settings.workerMode?.currentWorkerId === id){
+        settings.workerMode.currentWorkerId = (settings.workers[0]?.id || "");
+      }
+      saveSettings(settings);
+      ensureWorkerSettings();
+      try{ updateNavVisibility(); }catch(e){}
+      _renderWorkerList();
+    };
+  });
+}
+
+function openWorkerEditModal(worker){
+  ensureWorkerSettings();
+  const isNew = !worker || !worker.id;
+  const w = isNew ? { id: uid(), name:"", pinHash:"", isAdmin:false, perms:_defaultPermsAll() } : JSON.parse(JSON.stringify(worker));
+  if(w.isAdmin) w.perms = _defaultPermsAll();
+  w.perms = w.perms || _defaultPermsAll();
+
+  const rows = MODULE_KEYS.map(k=>{
+    const nice = (k==="hs") ? "H&S" : (k.charAt(0).toUpperCase()+k.slice(1));
+    const v = w.perms[k]?.view ? "checked" : "";
+    const e = w.perms[k]?.edit ? "checked" : "";
+    // Settings is usually admin-only; keep it visible but editable.
+    return `
+      <div class="row space" style="padding:6px 0; border-bottom:1px solid var(--border)">
+        <div class="sub">${escapeHtml(nice)}</div>
+        <div class="row" style="gap:10px">
+          <label class="row" style="gap:6px; align-items:center"><input type="checkbox" data-perm-view="${k}" ${v}/> <span class="sub">View</span></label>
+          <label class="row" style="gap:6px; align-items:center"><input type="checkbox" data-perm-edit="${k}" ${e}/> <span class="sub">Edit</span></label>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  openModal(`
+    <div class="row space">
+      <h2>${isNew ? "Add worker" : "Edit worker"}</h2>
+      <button class="btn" id="closeModalBtn" type="button">Close</button>
+    </div>
+
+    <label>Name</label>
+    <input class="input" id="wm_name" value="${escapeHtml(w.name||"")}" placeholder="e.g. Ben" />
+
+    <label style="margin-top:10px">PIN (optional)</label>
+    <input class="input" id="wm_pin" value="" placeholder="Set / change PIN (4 digits)" inputmode="numeric" />
+    <div class="smallmuted">PINs are stored as a secure hash (pinHash). Leave blank to keep existing.</div>
+
+    <div class="row" style="gap:10px; align-items:center; margin-top:10px">
+      <label class="row" style="gap:8px; align-items:center">
+        <input type="checkbox" id="wm_isAdmin" ${w.isAdmin ? "checked":""} />
+        <span>Admin (full access)</span>
+      </label>
+    </div>
+
+    <div class="row" style="gap:10px; align-items:center; margin-top:8px">
+      <label class="row" style="gap:8px; align-items:center">
+        <input type="checkbox" id="wm_blocked" ${w.blocked ? "checked":""} />
+        <span>Blocked (no access)</span>
+      </label>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="h">Permissions</div>
+      <div class="sub">View controls whether the module appears. Edit controls whether forms/edit actions are allowed.</div>
+      <div class="row" style="gap:10px; align-items:center; margin-top:10px">
+        <label class="row" style="gap:8px; align-items:center">
+          <input type="checkbox" id="wm_equipLocOnly" ${(w.perms && w.perms.equipment && w.perms.equipment.locationOnly) ? "checked":""} ${w.isAdmin ? "disabled":""} />
+          <span class="sub">Equipment: location-only (can only update assigned site / location note)</span>
+        </label>
+      </div>
+      <div class="card" style="margin-top:12px">
+  <div class="h">Project tabs</div>
+  <div class="sub">Choose which tabs this worker can access inside a project.</div>
+  <div style="margin-top:10px">
+    ${PROJECT_TABS.map(([k,label])=>{
+      const ck = (w.perms && w.perms.projectTabs && w.perms.projectTabs[k]!==false) ? "checked" : "";
+      return `<label class="row" style="gap:8px; align-items:center; padding:6px 0; border-bottom:1px solid var(--border)">
+        <input type="checkbox" data-ptab="${k}" ${ck} ${w.isAdmin ? "disabled":""}/>
+        <span class="sub">${label}</span>
+      </label>`;
+    }).join("")}
+  </div>
+</div>
+
+
+      <div style="margin-top:8px">${rows}</div>
+    </div>
+
+    <div class="row" style="gap:10px; margin-top:12px">
+      <button class="btn primary" id="wm_save" type="button">Save</button>
+      <button class="btn" id="cancelModalBtn" type="button">Cancel</button>
+    </div>
+  `);
+
+  const isAdminEl = document.getElementById("wm_isAdmin");
+  const refreshPermsDisabled = ()=>{
+    const disabled = !!(isAdminEl && isAdminEl.checked);
+    document.querySelectorAll('[data-perm-view],[data-perm-edit]').forEach(cb=>{
+      cb.disabled = disabled;
+      if(disabled) cb.checked = true;
+    });
+    const locCb = document.getElementById("wm_equipLocOnly");
+    if(locCb){ locCb.disabled = disabled; if(disabled) locCb.checked = false; }
+    document.querySelectorAll('[data-ptab]').forEach(cb=>{
+      cb.disabled = disabled;
+      if(disabled) cb.checked = true;
+    });
+
+  };
+  if(isAdminEl) isAdminEl.onchange = refreshPermsDisabled;
+  refreshPermsDisabled();
+
+  const saveBtn = document.getElementById("wm_save");
+  if(saveBtn) saveBtn.onclick = async ()=>{
+    const name = (document.getElementById("wm_name")?.value || "").trim();
+    const pin = (document.getElementById("wm_pin")?.value || "").trim();
+    const isAdmin = !!(document.getElementById("wm_isAdmin")?.checked);
+    const blocked = !!(document.getElementById("wm_blocked")?.checked);
+
+    if(!name){
+      alert("Please enter a name.");
+      return;
+    }
+
+    const nw = { ...w, name, isAdmin, blocked };
+    // PIN hashing (store pinHash only)
+    if(pin){
+      try{ nw.pinHash = await hashPin(pin); }
+      catch(e){ alert("Could not hash PIN. Try again."); return; }
+    }else{
+      // If editing and leaving blank, keep existing pinHash.
+      // If new worker and blank, ensure empty.
+      if(isNew) nw.pinHash = "";
+    }
+
+    if(isAdmin){
+      nw.perms = _defaultPermsAll();
+    }else{
+      nw.perms = nw.perms || _defaultPermsAll();
+      for(const k of MODULE_KEYS){
+        const vcb = document.querySelector(`[data-perm-view="${k}"]`);
+        const ecb = document.querySelector(`[data-perm-edit="${k}"]`);
+        nw.perms[k] = { view: !!(vcb && vcb.checked), edit: !!(ecb && ecb.checked) };
+        // If can't view, force edit false.
+        if(!nw.perms[k].view) nw.perms[k].edit = false;
+      }
+    }
+    // Project tab restrictions
+    nw.perms.projectTabs = nw.perms.projectTabs || _defaultProjectTabPermsAll();
+    if(!isAdmin){
+      PROJECT_TABS.forEach(([k])=>{
+        const cb = document.querySelector(`[data-ptab="${k}"]`);
+        if(cb) nw.perms.projectTabs[k] = !!cb.checked;
+      });
+    }else{
+      nw.perms.projectTabs = _defaultProjectTabPermsAll();
+    }
+
+
+    // Equipment: location-only override
+    const _locOnlyEl = document.getElementById("wm_equipLocOnly");
+    const locOnly = !!(_locOnlyEl && _locOnlyEl.checked);
+    if(locOnly && !isAdmin){
+      nw.perms = nw.perms || _defaultPermsAll();
+      nw.perms.equipment = nw.perms.equipment || { view:true, edit:true };
+      nw.perms.equipment.view = true;
+      nw.perms.equipment.edit = true;
+      nw.perms.equipment.locationOnly = true;
+    }else{
+      if(nw.perms && nw.perms.equipment) delete nw.perms.equipment.locationOnly;
+    }
+
+    // Prevent blocking the last admin
+    if(nw.isAdmin && nw.blocked){
+      const admins = (settings.workers||[]).filter(x=>x && x.isAdmin && !x.blocked && x.id!==nw.id);
+      if(admins.length===0){
+        alert("You can’t block the last admin.");
+        return;
+      }
+    }
+
+    // Save back
+    const list = settings.workers || [];
+    const i = list.findIndex(x=>x && x.id===nw.id);
+    if(i>=0) list[i] = nw; else list.push(nw);
+    settings.workers = list;
+
+    // If worker mode enabled and no active worker, set it.
+    settings.workerMode = settings.workerMode || { enabled:false, currentWorkerId:"", requirePin:false };
+    if(settings.workerMode.enabled && !settings.workerMode.currentWorkerId){
+      settings.workerMode.currentWorkerId = nw.id;
+    }
+        nw.updatedAt = new Date().toISOString();
+saveSettings(settings);
+    ensureWorkerSettings();
+    try{ updateNavVisibility(); }catch(e){}
+    closeModal();
+    _renderWorkerList();
+  };
+}
+
+function bindWorkerSettingsUI(){
+  ensureWorkerSettings();
+  const en = document.getElementById("wm_enabled");
+  const rp = document.getElementById("wm_requirePin");
+  const add = document.getElementById("wm_add");
+  if(en) en.onchange = async ()=>{
+    settings.workerMode = settings.workerMode || { enabled:false, currentWorkerId:"", requirePin:false };
+    const wasEnabled = !!settings.workerMode.enabled;
+    if(wasEnabled && !en.checked){
+      if(!(await verifyWorkerModeDeactivationPin())){
+        en.checked = true;
+        return;
+      }
+    }
+    settings.workerMode.enabled = !!en.checked;
+    // If turning on, ensure admin exists
+    if(settings.workerMode.enabled){
+      ensureWorkerSettings();
+      if(!settings.workerMode.currentWorkerId){
+        settings.workerMode.currentWorkerId = settings.workers[0]?.id || "";
+      }
+    }
+    saveSettings(settings);
+    ensureWorkerSettings();
+    try{ updateNavVisibility(); }catch(e){}
+    _renderWorkerList();
+    if(settings.workerMode.enabled && !currentWorker()){
+      openWorkerPicker({ title: "Select worker" });
+    }
+  };
+  if(rp) rp.onchange = ()=>{
+    settings.workerMode = settings.workerMode || { enabled:false, currentWorkerId:"", requirePin:false };
+    settings.workerMode.requirePin = !!rp.checked;
+    saveSettings(settings);
+  };
+  if(add) add.onclick = ()=> openWorkerEditModal({ id:"", name:"", pinHash:"", isAdmin:false, perms:_defaultPermsAll() });
+  _renderWorkerList();
+}
+
+
+
+ensureWorkerSettings();
+function applyTheme(){
+  document.documentElement.setAttribute("data-theme", settings.theme || "dark");
+}
+applyTheme();
+
+// Hydrate from IndexedDB (authoritative) then re-apply migrations and refresh UI.
+initStorageHydrate().then(()=>{
+  try{ applyStateMigrations(); }catch(e){}
+  try{ applyTheme(); }catch(e){}
+  try{ saveState(state); }catch(e){} // ensures normalised state is persisted
+  try{
+    // render may not exist yet, but function declarations are hoisted.
+    render(); try{renderDeletedProjectsUI();}catch(e){}
+  }catch(e){}
+});
+
+// Service worker
+const __NO_SW__ = new URLSearchParams(location.search).has("nosw");
+if("serviceWorker" in navigator){
+  window.addEventListener("load", async ()=>{
+    try{ await navigator.serviceWorker.register("./sw.js"); }catch(e){}
+    try{
+      const lu = document.getElementById('lastUpdateStamp');
+      if(lu) lu.textContent = getLastUpdateStamp();
+    }catch(e){}
+
+  });
+}
+
+function setHeader(title){
+  $("#headerTitle").textContent = title || "MCB Site Manager";
+}
+
+function navTo(route, params={}){
+  const q = new URLSearchParams(params).toString();
+  location.hash = q ? `#/${route}?${q}` : `#/${route}`;
+}
+
+function parseRoute(){
+  const h = location.hash || "#/projects";
+  const [path, query] = h.replace(/^#\//,"").split("?");
+  const params = Object.fromEntries(new URLSearchParams(query || ""));
+  return { path: path || "projects", params };
+}
+
+function money(n){
+  const v = Number(n || 0);
+  return new Intl.NumberFormat("en-NZ", { style:"currency", currency:"NZD" }).format(v);
+}
 function dateFmt(iso){
   try{
     const d = new Date(iso);
@@ -2010,10 +2479,10 @@ function showModal(html){
   $("#modalBack").classList.add("show");
 }
 function closeModal(){
-  if(window.__modalLocked){ return; }
   $("#modalBack").classList.remove("show");
   $("#modal").innerHTML = "";
 }
+
 function openModal(html){
   $("#modal").innerHTML = html || "";
   $("#modalBack").classList.add("show");
@@ -2029,6 +2498,74 @@ function openModal(html){
     if(e && e.target && e.target.id==="modalBack") closeModal();
   };
 }
+
+function openModalLocked(html){
+  openModal(html);
+  // Disable backdrop close + remove close buttons if present
+  const mb = document.getElementById("modalBack");
+  if(mb) mb.onclick = null;
+  const closeBtn = document.getElementById("closeModalBtn");
+  if(closeBtn) closeBtn.remove();
+  const cancelBtn = document.getElementById("cancelModalBtn");
+  if(cancelBtn) cancelBtn.remove();
+}
+
+// Banking-style on-screen PIN pad (no OS keyboard)
+function promptPinPadModal({ title="Enter PIN", subtitle="", expectedLen=4, allowCancel=true } = {}){
+  return new Promise((resolve)=>{
+    let pin = "";
+    const dots = ()=> "●".repeat(pin.length) + "○".repeat(Math.max(0, expectedLen - pin.length));
+    const renderDots = ()=>{ const el=document.getElementById("pinDots"); if(el) el.textContent = dots(); };
+    const finish = ()=>{ const v=pin; closeModal(); resolve(v); };
+
+    const keys = [1,2,3,4,5,6,7,8,9,"clr",0,"bk"];
+    const keyHtml = keys.map(k=>{
+      if(k==="bk") return `<button class="pinKey" type="button" data-pin-key="bk">⌫</button>`;
+      if(k==="clr") return `<button class="pinKey ghost" type="button" data-pin-key="clr">Clear</button>`;
+      return `<button class="pinKey" type="button" data-pin-key="${k}">${k}</button>`;
+    }).join("");
+
+    openModalLocked(`
+      <div class="pinPadWrap">
+        <div class="row space" style="align-items:flex-start">
+          <div>
+            <h2 style="margin:0">${escapeHtml(title)}</h2>
+            ${subtitle ? `<div class="sub" style="margin-top:6px">${subtitle}</div>` : ``}
+          </div>
+          ${allowCancel ? `<button class="btn" id="pinCancelBtn" type="button">Cancel</button>` : ``}
+        </div>
+        <div id="pinDots" class="pinDots" aria-label="PIN">${dots()}</div>
+        <div class="pinGrid">${keyHtml}</div>
+      </div>
+    `);
+
+    const cancelBtn = document.getElementById("pinCancelBtn");
+    if(cancelBtn) cancelBtn.onclick = ()=>{ closeModal(); resolve(null); };
+
+    document.querySelectorAll("[data-pin-key]").forEach(btn=>{
+      btn.onclick = ()=>{
+        const k = btn.getAttribute("data-pin-key");
+        if(k==="bk"){
+          pin = pin.slice(0,-1);
+          renderDots();
+          return;
+        }
+        if(k==="clr"){
+          pin = "";
+          renderDots();
+          return;
+        }
+        if(!/^\d$/.test(k)) return;
+        if(pin.length >= expectedLen) return;
+        pin += k;
+        renderDots();
+        if(pin.length === expectedLen) finish();
+      };
+    });
+  });
+}
+
+
 
 $("#modalBack").addEventListener("click", (e)=>{
   if(e.target.id === "modalBack") closeModal();
@@ -8235,18 +8772,4 @@ function initNavMenu(){
     }
     try{ navTo(route); }catch(err){}
   });
-}
-
-// === WORKER MODE (SAFE STEP 1) ===
-window.WORKER_MODE_ENABLED = true;
-window.currentWorkerName = null;
-
-function openWorkerSelectModal() {
-  const modal = document.getElementById("workerSelectModal");
-  if (modal) modal.classList.add("open");
-}
-
-function setWorker(workerName) {
-  window.currentWorkerName = workerName;
-  console.log("Worker set:", workerName);
 }
