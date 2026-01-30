@@ -8710,3 +8710,17 @@ function initNavMenu(){
     try{ navTo(route); }catch(err){}
   });
 }
+
+// === WORKER MODE (SAFE STEP 1) ===
+window.WORKER_MODE_ENABLED = true;
+window.currentWorker = null;
+
+function openWorkerSelectModal() {
+  const modal = document.getElementById("workerSelectModal");
+  if (modal) modal.classList.add("open");
+}
+
+function setWorker(workerName) {
+  window.currentWorker = workerName;
+  console.log("Worker set:", workerName);
+}
