@@ -1,6 +1,6 @@
 
 
-const BUILD_ID = "mcb-build-20260130-2215";
+const BUILD_ID = "mcb-build-20260130-2300";
 
 // === HARDWIRED SYNC CONFIG (loaded from sync-config.js) ===
 const __SYNC_CFG = (typeof window !== "undefined" && window.SYNC_CONFIG) ? window.SYNC_CONFIG : {};
@@ -8713,7 +8713,7 @@ function initNavMenu(){
 
 // === WORKER MODE (SAFE STEP 1) ===
 window.WORKER_MODE_ENABLED = true;
-window.currentWorker = null;
+window.currentWorkerName = null;
 
 function openWorkerSelectModal() {
   const modal = document.getElementById("workerSelectModal");
@@ -8721,6 +8721,6 @@ function openWorkerSelectModal() {
 }
 
 function setWorker(workerName) {
-  window.currentWorker = workerName;
+  window.currentWorkerName = workerName;
   console.log("Worker set:", workerName);
 }
