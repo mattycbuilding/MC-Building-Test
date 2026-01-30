@@ -868,3 +868,27 @@ body{ background: var(--bg) !important; color: var(--text) !important; }
 #app :where(a){ color: var(--link); }
 #app :where(input, select, textarea){ color: var(--text); }
 #app :where(input::placeholder, textarea::placeholder){ color: var(--muted); }
+
+
+/* Worker kiosk picker */
+.workerTiles{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.workerTile{
+  width: 100%;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  border-radius: 14px;
+  padding: 14px 12px;
+  text-align: left;
+}
+.workerTile:active{ transform: translateY(1px); }
+.workerTile .wtName{ font-weight: 800; font-size: 16px; }
+.workerTile .wtMeta{ margin-top: 6px; opacity: .7; font-size: 12px; }
+
+/* PIN input: use tel for numeric keypad but mask like password on WebKit */
+.pinInput{
+  -webkit-text-security: disc;
+}
