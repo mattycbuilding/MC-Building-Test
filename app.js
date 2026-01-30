@@ -1,6 +1,6 @@
 
 
-const BUILD_ID = "mcb-build-20260130-2415";
+const BUILD_ID = "mcb-build-20260130-2215";
 
 // === HARDWIRED SYNC CONFIG (loaded from sync-config.js) ===
 const __SYNC_CFG = (typeof window !== "undefined" && window.SYNC_CONFIG) ? window.SYNC_CONFIG : {};
@@ -644,8 +644,7 @@ const uid = () => Math.random().toString(16).slice(2) + Date.now().toString(16);
 
 // ===== PIN hashing (SHA-256) =====
 async function hashPin(pin){
-  // Numeric-only PINs: strip all non-digits (handles paste too)
-  const p = String(pin||"").replace(/\D/g, "");
+  const p = String(pin||"").trim();
   if(!p) return "";
   const enc = new TextEncoder().encode(p);
   const buf = await crypto.subtle.digest("SHA-256", enc);
@@ -1702,7 +1701,7 @@ async function openWorkerGateOnLaunch(){
         </div>
         <div style="margin-top:12px" class="card">
           <label class="label">Master PIN</label>
-          <input class="input" id="wm_master_pin" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="Enter master PIN" oninput="this.value=this.value.replace(/\D/g,'')" />
+          <input class="input" id="wm_master_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter master PIN" />
           <div class="row" style="gap:10px; margin-top:10px">
             <button class="btn primary" id="wm_unlock_settings" type="button">Continue</button>
           </div>
@@ -1730,7 +1729,7 @@ async function openWorkerGateOnLaunch(){
               <input class="input" id="wm_new_name" placeholder="e.g., Mike" />
               <div style="margin-top:10px">
                 <label class="label">PIN</label>
-                <input class="input" id="wm_new_pin" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="Set a PIN (numbers)" oninput="this.value=this.value.replace(/\D/g,'')" />
+                <input class="input" id="wm_new_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Set a PIN (numbers)" />
               </div>
 
               <label class="row" style="gap:8px; align-items:center; margin-top:10px">
@@ -1802,7 +1801,7 @@ async function openWorkerGateOnLaunch(){
         <div class="sub" style="margin-top:6px">Enter your PIN to continue.</div>
         <div class="card" style="margin-top:12px">
           <label class="label">Worker PIN</label>
-          <input class="input" id="wm_worker_pin" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="Enter your PIN" oninput="this.value=this.value.replace(/\D/g,'')" />
+          <input class="input" id="wm_worker_pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter your PIN" />
           <div class="row" style="gap:10px; margin-top:10px">
             <button class="btn primary" id="wm_login" type="button">Login</button>
             <button class="btn" id="wm_settings_only" type="button">Settings (Master)</button>
@@ -1914,26 +1913,22 @@ function openWorkerPicker(opts={}){
         if(requirePin){
           // Profile Setup must ALWAYS require the Master PIN (even if its pinHash was overwritten by sync)
           if(String(w.id||"")===PROFILE_SETUP_ID || w.isSetup){
-            let pin = await promptPinModal(`Enter Master PIN`, `Use ${w.name}`);
+            const pin = prompt(`Enter Master PIN to use ${w.name}`);
             if(pin === null) return;
-            pin = String(pin).replace(/\D/g, "");
-            if(!pin){ alert("PIN must be numbers only."); return; }
+            if(!String(pin).trim()){ alert("PIN is required."); return; }
             const ok = await verifyWorkerMasterPin(pin);
             if(!ok){ alert("Incorrect PIN."); return; }
           }
           // If global/master PIN is enabled, use it for all worker selection.
           else if(settings.workerMode && settings.workerMode.globalPin){
-            let pin = await promptPinModal(`Enter Master PIN`, `Use ${w.name}`);
+            const pin = prompt(`Enter Master PIN to use ${w.name}`);
             if(pin === null) return;
-            pin = String(pin).replace(/\D/g, "");
-            if(!pin){ alert("PIN must be numbers only."); return; }
             const ok = await verifyWorkerMasterPin(pin);
             if(!ok){ alert("Incorrect PIN."); return; }
           }else if((w.pinHash||"").trim()){
-            let pin = await promptPinModal(`Enter PIN`, `for ${w.name}`);
+            const pin = prompt(`Enter PIN for ${w.name}`);
             if(pin === null) return;
-            pin = String(pin).replace(/\D/g, "");
-            if(!pin){ alert("PIN must be numbers only."); return; }
+            if(!String(pin).trim()){ alert("PIN is required."); return; }
             const ok = await verifyWorkerPin(w, pin);
             if(!ok){ alert("Incorrect PIN."); return; }
           }else{
@@ -1959,7 +1954,7 @@ async function verifyWorkerModeDeactivationPin(){
     .map(w=>w.pinHash);
 
   if(adminHashes.length){
-    const pin = await promptPinModal("Enter ADMIN PIN", "to disable Worker mode");
+    const pin = prompt("Enter ADMIN PIN to disable Worker mode");
     if(pin === null) return false;
     const ph = await hashPin(String(pin).trim());
     const ok = adminHashes.some(h=>String(h||"").trim() === ph);
@@ -1970,7 +1965,7 @@ async function verifyWorkerModeDeactivationPin(){
   // Fallback: if the current worker is an Admin with a PIN set, allow that.
   const cw = currentWorker();
   if(cw && cw.isAdmin && String(cw.pinHash||"").trim()){
-    const pin = await promptPinModal("Enter PIN", `for ${cw.name} to disable Worker mode`);
+    const pin = prompt(`Enter PIN for ${cw.name} to disable Worker mode`);
     if(pin === null) return false;
     const ok = await verifyWorkerPin(cw, pin);
     if(!ok) alert("Incorrect PIN.");
@@ -2491,60 +2486,6 @@ function showModal(html){
 function closeModal(){
   $("#modalBack").classList.remove("show");
   $("#modal").innerHTML = "";
-}
-
-// === Numeric PIN Modal (forces numeric keypad on mobile) ===
-function promptPinModal(title, message){
-  return new Promise((resolve)=>{
-    const safeTitle = title || "Enter PIN";
-    const safeMsg = message || "";
-    openModal(`
-      <div class="modalHead">
-        <div class="modalTitle">${safeTitle}</div>
-        <button class="iconBtn" id="closeModalBtn" title="Close">✕</button>
-      </div>
-      ${safeMsg ? `<div class="sub" style="margin-top:6px">${safeMsg}</div>` : ``}
-      <div style="margin-top:12px">
-        <input id="pinModalInput" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code"
-               placeholder="••••" class="input" style="font-size:18px; letter-spacing:4px"
-               />
-      </div>
-      <div class="row" style="gap:10px; margin-top:12px; justify-content:flex-end">
-        <button class="btn ghost" id="cancelModalBtn">Cancel</button>
-        <button class="btn" id="pinModalOkBtn">OK</button>
-      </div>
-    `);
-
-    const inp = document.getElementById("pinModalInput");
-    const okBtn = document.getElementById("pinModalOkBtn");
-    const cancelBtn = document.getElementById("cancelModalBtn");
-    const closeBtn = document.getElementById("closeModalBtn");
-
-    const cleanup = (val)=>{
-      try{ closeModal(); }catch(e){}
-      resolve(val);
-    };
-
-    const getVal = ()=> (inp ? String(inp.value||"").replace(/\D/g,"") : "");
-
-    if(inp){
-      inp.oninput = ()=>{ inp.value = getVal(); };
-      setTimeout(()=>{ try{ inp.focus(); }catch(e){} }, 50);
-      inp.onkeydown = (e)=>{
-        if(e.key==="Enter"){
-          e.preventDefault();
-          const v = getVal();
-          cleanup(v || "");
-        }
-      };
-    }
-    if(okBtn) okBtn.onclick = ()=> cleanup(getVal() || "");
-    if(cancelBtn) cancelBtn.onclick = ()=> cleanup(null);
-    if(closeBtn) closeBtn.onclick = ()=> cleanup(null);
-  });
-}
-
-
 }
 
 function openModal(html){
