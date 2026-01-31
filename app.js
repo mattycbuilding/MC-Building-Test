@@ -1,6 +1,6 @@
 
 
-const BUILD_ID = "mcb-build-20260130-WorkerKioskKeypad";
+const BUILD_ID = "mcb-build-20260131051639-programme-totask-seed";
 
 // === HARDWIRED SYNC CONFIG (loaded from sync-config.js) ===
 const __SYNC_CFG = (typeof window !== "undefined" && window.SYNC_CONFIG) ? window.SYNC_CONFIG : {};
@@ -4940,10 +4940,10 @@ function openTaskForm(seed={}){
   const t = isEdit ? seed : {
     id: uid(),
     projectId: seed.projectId || (state.projects[0]?.id || ""),
-    title: "",
-    details: "",
-    status: "To do",
-    dueDate: "",
+    title: (seed.title || ""),
+    details: (seed.details || ""),
+    status: (seed.status || "To do"),
+    dueDate: (seed.dueDate || ""),
     assignedSubbieId: null,
     assignedWorkerId: rw ? String(rw.id||"") : null,
     assignedWorkerName: rw ? String(rw.name||"Worker") : "",
