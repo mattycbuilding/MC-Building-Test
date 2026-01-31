@@ -8931,3 +8931,135 @@ function initNavMenu(){
     try{ navTo(route); }catch(err){}
   });
 }
+
+
+/* === Programme buttons delegation (To task / Edit / Delete / Remove) === */
+(function(){
+  if(window.__mcbProgrammeBtnDelegation) return;
+  window.__mcbProgrammeBtnDelegation = true;
+
+  function _getProjectIdFromEl(el){
+    return el.getAttribute("data-cprog-project")
+      || el.getAttribute("data-prog-project")
+      || (state && state.route && state.route.projectId)
+      || "";
+  }
+
+  document.addEventListener("click", async (ev)=>{
+    const el = ev.target && ev.target.closest ? ev.target.closest(
+      "[data-cprog-to-task],[data-cprog-edit],[data-cprog-del],[data-prog-to-task],[data-prog-edit],[data-prog-remove]"
+    ) : null;
+    if(!el) return;
+
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const projectId = _getProjectIdFromEl(el);
+
+    // ---- Custom programme sections ----
+    const cTo = el.getAttribute("data-cprog-to-task");
+    if(cTo){
+      try{
+        const p = projectById(projectId);
+        if(!p) return;
+        const sched = computeCustomProgrammeSchedule(p);
+        const s = sched.find(x=>String(x.id)===String(cTo));
+        if(!s){
+          alert("Programme item not found.");
+          return;
+        }
+        openTaskForm({
+          projectId,
+          title: s.title || "Programme item",
+          details: [
+            "Created from programme section.",
+            (s.plannedStart || s.startDate) ? ("Planned: " + (s.plannedStart||s.startDate) + " → " + (s.plannedEnd||"")) : "",
+            s.days ? ("Duration: " + s.days + " day(s)") : ""
+          ].filter(Boolean).join("\n"),
+          dueDate: s.plannedEnd || s.plannedStart || ""
+        });
+      }catch(e){
+        console.error(e);
+        alert("Couldn't create task from programme item.");
+      }
+      return;
+    }
+
+    const cEdit = el.getAttribute("data-cprog-edit");
+    if(cEdit){
+      try{ openProgrammeSectionModal(projectId, cEdit); }catch(e){ console.error(e); }
+      return;
+    }
+
+    const cDel = el.getAttribute("data-cprog-del");
+    if(cDel){
+      try{
+        if(!confirmDelete("programme section")) return;
+        const p = projectById(projectId);
+        if(!p) return;
+        ensureCustomProgramme(p);
+        p.customProgramme = (p.customProgramme||[]).filter(x=>String(x.id)!==String(cDel));
+        saveState(state);
+        render();
+      }catch(e){
+        console.error(e);
+        alert("Couldn't delete programme section.");
+      }
+      return;
+    }
+
+    // ---- Template programme tasks ----
+    const pTo = el.getAttribute("data-prog-to-task");
+    if(pTo){
+      try{
+        const t = programmeTasksForProject(projectId).find(x=>String(x.id)===String(pTo));
+        if(!t){
+          alert("Programme task not found.");
+          return;
+        }
+        openTaskForm({
+          projectId,
+          title: t.name || "Programme task",
+          details: [
+            "Created from programme task.",
+            t.trade ? ("Trade: " + t.trade) : "",
+            t.plannedStart ? ("Planned: " + t.plannedStart + " → " + (t.plannedEnd||"")) : "",
+            (t.days||t.durationDays) ? ("Duration: " + (t.days||t.durationDays) + " day(s)") : ""
+          ].filter(Boolean).join("\n"),
+          dueDate: t.plannedEnd || t.plannedStart || ""
+        });
+      }catch(e){
+        console.error(e);
+        alert("Couldn't create task from programme task.");
+      }
+      return;
+    }
+
+    const pEdit = el.getAttribute("data-prog-edit");
+    if(pEdit){
+      try{ openProgrammeTaskModal(projectId, pEdit); }catch(e){ console.error(e); }
+      return;
+    }
+
+    const pRem = el.getAttribute("data-prog-remove");
+    if(pRem){
+      try{
+        if(!confirmDelete("programme task")) return;
+        const tasks = programmeTasksForProject(projectId);
+        const next = tasks.map(t=>{
+          if(String(t.id)===String(pRem)){
+            try{ return markProgrammeTaskRemoved({ ...t }, true); }catch(e){ return { ...t, removed:true, removedAt: new Date().toISOString() }; }
+          }
+          return t;
+        });
+        saveProgrammeTasksForProject(projectId, next);
+        render();
+      }catch(e){
+        console.error(e);
+        alert("Couldn't remove programme task.");
+      }
+      return;
+    }
+  });
+})();
+
