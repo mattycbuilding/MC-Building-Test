@@ -1,6 +1,6 @@
 
 
-const BUILD_ID = "mcb-build-20260131051639-programme-totask-seed";
+const BUILD_ID = "mcb-build-20260131054846-programme-sync";
 
 // === HARDWIRED SYNC CONFIG (loaded from sync-config.js) ===
 const __SYNC_CFG = (typeof window !== "undefined" && window.SYNC_CONFIG) ? window.SYNC_CONFIG : {};
@@ -672,6 +672,7 @@ const defaults = () => ({
   inspections: [],
   programmeTasks: [],
   programmeHistoryStats: [],
+  programmeCustom: [],
   equipment: [],
   equipmentLogs: [],
   fleet: [],
@@ -756,6 +757,27 @@ function saveProject(p){
   const idx = list.findIndex(x=>String(x.id)===String(p.id));
   if(idx>=0) list[idx]=p; else list.unshift(p);
   state.projects = list;
+  // Mirror custom programme sections into a synced table so they survive server-side schema limits.
+  try{
+    if(!state.programmeCustom) state.programmeCustom = [];
+    if(Array.isArray(p.customProgramme)){
+      const pid = String(p.id);
+      const keep = aliveArr(state.programmeCustom).filter(x=>String(x.projectId)!==pid);
+      const rows = (p.customProgramme||[]).filter(Boolean).map(s=>({
+        id: String(s.id||uid()),
+        projectId: pid,
+        title: String(s.title||"Section"),
+        days: Number(s.days||1),
+        startDate: String(s.startDate||""),
+        manualStart: !!s.manualStart,
+        notes: String(s.notes||""),
+        createdAt: s.createdAt || new Date().toISOString(),
+        updatedAt: s.updatedAt || new Date().toISOString(),
+        alive: (s.alive===false?false:true)
+      }));
+      state.programmeCustom = keep.concat(rows);
+    }
+  }catch(e){}
   saveState(state);
 }
 
@@ -922,6 +944,24 @@ function generateProgrammeForProject(p, opts={}){
 function ensureCustomProgramme(p){
   if(!p.customProgramme) p.customProgramme = [];
   if(!p.programmeMode) p.programmeMode = "template"; // "template" | "custom"
+
+  // Hydrate from synced programmeCustom table if present (source of truth for custom sections across devices)
+  try{
+    const pid = String(p.id||"");
+    const rows = aliveArr(state.programmeCustom).filter(x=>String(x.projectId)===pid && isAlive(x));
+    if(rows.length){
+      p.customProgramme = rows.map(r=>({
+        id: String(r.id),
+        title: r.title || "Section",
+        days: Number(r.days||1),
+        startDate: r.startDate || "",
+        manualStart: !!r.manualStart,
+        notes: r.notes || "",
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt
+      }));
+    }
+  }catch(e){}
   // normalize items
   p.customProgramme = (p.customProgramme||[]).map(s=>{
     if(!s || typeof s!=="object") return null;
@@ -1236,6 +1276,7 @@ function nowISO(){ return new Date().toISOString(); }
 const CANON_LIST_KEYS = [
   "projects","tasks","diary","variations","subbies","deliveries","leads","inspections",
   "programmeTasks","programmeHistoryStats",
+  "programmeCustom",
   "equipment","equipmentLogs","fleet","fleetLogs","activityLog",
   "hsProfiles","hsInductions","hsHazards","hsToolboxes","hsIncidents"
 ];
@@ -6757,6 +6798,7 @@ function _buildSyncPayload(){
     Subbies: (state.subbies||[]),
     ProgrammeTasks: (state.programmeTasks||[]),
     ProgrammeHistoryStats: (state.programmeHistoryStats||[]),
+    ProgrammeCustom: (state.programmeCustom||[]),
     Equipment: (state.equipment||[]),
     EquipmentLogs: (state.equipmentLogs||[]),
     Fleet: (state.fleet||[]),
@@ -6795,6 +6837,7 @@ function _applyPulledData(data){
   any = mergeTable("Subbies","subbies") || any;
   any = mergeTable("ProgrammeTasks","programmeTasks") || any;
   any = mergeTable("ProgrammeHistoryStats","programmeHistoryStats") || any;
+  any = mergeTable("ProgrammeCustom","programmeCustom") || any;
   any = mergeTable("Equipment","equipment") || any;
   any = mergeTable("EquipmentLogs","equipmentLogs") || any;
   any = mergeTable("Fleet","fleet") || any;
