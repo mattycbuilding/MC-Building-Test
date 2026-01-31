@@ -1,6 +1,6 @@
 
 
-const BUILD_ID = "mcb-build-20260131-ProgrammeTasksReports";
+const BUILD_ID = "mcb-build-20260130-WorkerKioskKeypad";
 
 // === HARDWIRED SYNC CONFIG (loaded from sync-config.js) ===
 const __SYNC_CFG = (typeof window !== "undefined" && window.SYNC_CONFIG) ? window.SYNC_CONFIG : {};
@@ -936,195 +936,6 @@ function ensureCustomProgramme(p){
   }).filter(Boolean);
   return p.customProgramme;
 }
-
-function sortCustomProgrammeByStart(p){
-  ensureCustomProgramme(p);
-  const schedule = computeCustomProgrammeSchedule(p) || [];
-  // schedule is aligned with p.customProgramme; build mapping id->plannedStart
-  const map = {};
-  schedule.forEach(s=>{ map[String(s.id)] = s.plannedStart || ""; });
-  p.customProgramme.sort((a,b)=>{
-    const da = map[String(a.id)] || (a.startDate||"");
-    const db = map[String(b.id)] || (b.startDate||"");
-    if(da===db) return (a.title||"").localeCompare(b.title||"");
-    return String(da).localeCompare(String(db));
-  });
-  saveProject(p);
-}
-
-function openCustomProgrammeModal(projectId, sectionId){
-  const p = projectById(projectId);
-  if(!p) return;
-  ensureCustomProgramme(p);
-
-  const isEdit = !!sectionId;
-  const it = isEdit ? (p.customProgramme||[]).find(x=>String(x.id)===String(sectionId)) : null;
-  const seed = it ? { ...it } : {
-    id: uid(),
-    title: "",
-    days: 1,
-    startDate: "",
-    manualStart: false
-  };
-
-  const title = isEdit ? "Edit programme section" : "Add programme section";
-  openModal(`
-    <div class="modalCard">
-      <div class="row space">
-        <h2>${title}</h2>
-        <button class="btn ghost" id="closeModalBtn" type="button">Close</button>
-      </div>
-
-      <div style="margin-top:10px">
-        <label class="sub">Title</label>
-        <input class="input" id="cprogTitle" value="${escapeAttr(seed.title||"")}" placeholder="e.g. Foundations" />
-      </div>
-
-      <div class="row" style="gap:10px; margin-top:10px; flex-wrap:wrap">
-        <div style="min-width:140px">
-          <label class="sub">Days</label>
-          <input class="input" id="cprogDays" type="number" min="1" step="1" value="${escapeAttr(String(Number(seed.days||1)))}" />
-        </div>
-        <div style="min-width:220px; flex:1">
-          <label class="sub">Start date (optional)</label>
-          <input class="input" id="cprogStart" type="date" value="${escapeAttr(seed.startDate||"")}" />
-          <div class="smallmuted">If set to Manual, this date is used. If Auto, leave blank for consecutive schedule.</div>
-        </div>
-      </div>
-
-      <div class="row" style="gap:10px; margin-top:10px; align-items:center">
-        <label class="row" style="gap:8px; align-items:center">
-          <input type="checkbox" id="cprogManual" ${seed.manualStart ? "checked":""} />
-          <span class="sub">Manual start date</span>
-        </label>
-      </div>
-
-      <div class="row space" style="margin-top:14px">
-        <button class="btn" id="cancelModalBtn" type="button">Cancel</button>
-        <button class="btn primary" id="saveCProg" type="button">${isEdit?"Save":"Add"}</button>
-      </div>
-    </div>
-  `);
-
-  const saveBtn = document.getElementById("saveCProg");
-  if(saveBtn) saveBtn.onclick = ()=>{
-    const t = (document.getElementById("cprogTitle")?.value || "").trim();
-    const d = Math.max(1, Number(document.getElementById("cprogDays")?.value || 1));
-    const sd = (document.getElementById("cprogStart")?.value || "").trim();
-    const man = !!document.getElementById("cprogManual")?.checked;
-
-    const now = new Date().toISOString();
-    if(isEdit && it){
-      it.title = t || "Section";
-      it.days = d;
-      it.manualStart = man;
-      it.startDate = man ? sd : "";
-      it.updatedAt = now;
-    }else{
-      p.customProgramme.push({
-        id: seed.id,
-        title: t || "Section",
-        days: d,
-        manualStart: man,
-        startDate: man ? sd : "",
-        createdAt: now,
-        updatedAt: now
-      });
-    }
-    saveProject(p);
-    try{ sortCustomProgrammeByStart(p); }catch(e){}
-    closeModal();
-    render();
-  };
-}
-
-function convertProgrammeItemToTask(projectId, item){
-  const p = projectById(projectId);
-  if(!p) return;
-  const title = item.name || item.title || "Programme task";
-  const start = item.plannedStart || item.startDate || "";
-  const end = item.plannedEnd || item.dueDate || "";
-  const days = Number(item.totalDays || item.days || 0) || "";
-  const details = [
-    item.phase ? `Phase: ${item.phase}` : "",
-    item.trade ? `Trade: ${item.trade}` : "",
-    start || end ? `Programme: ${start} → ${end}` : "",
-    days ? `Duration: ${days} day(s)` : ""
-  ].filter(Boolean).join("\n");
-
-  openTaskForm({
-    projectId,
-    title,
-    details,
-    dueDate: end || start || ""
-  });
-}
-
-function openProgrammeTaskEditModal(projectId, taskId){
-  const tasks = getProgrammeTasksForProject(projectId) || [];
-  const t = tasks.find(x=>String(x.id)===String(taskId));
-  if(!t) return;
-
-  openModal(`
-    <div class="modalCard">
-      <div class="row space">
-        <h2>Edit programme task</h2>
-        <button class="btn ghost" id="closeModalBtn" type="button">Close</button>
-      </div>
-
-      <div style="margin-top:10px">
-        <label class="sub">Name</label>
-        <input class="input" id="ptName" value="${escapeAttr(t.name||"")}" />
-      </div>
-
-      <div class="row" style="gap:10px; margin-top:10px; flex-wrap:wrap">
-        <div style="min-width:180px">
-          <label class="sub">Phase</label>
-          <input class="input" id="ptPhase" value="${escapeAttr(t.phase||"")}" />
-        </div>
-        <div style="min-width:180px">
-          <label class="sub">Trade</label>
-          <input class="input" id="ptTrade" value="${escapeAttr(t.trade||"")}" />
-        </div>
-      </div>
-
-      <div class="row" style="gap:10px; margin-top:10px; flex-wrap:wrap">
-        <div style="min-width:180px">
-          <label class="sub">Planned start</label>
-          <input class="input" type="date" id="ptStart" value="${escapeAttr(t.plannedStart||"")}" />
-        </div>
-        <div style="min-width:180px">
-          <label class="sub">Planned end</label>
-          <input class="input" type="date" id="ptEnd" value="${escapeAttr(t.plannedEnd||"")}" />
-        </div>
-        <div style="min-width:140px">
-          <label class="sub">Days</label>
-          <input class="input" type="number" min="0" step="1" id="ptDays" value="${escapeAttr(String(Number(t.totalDays||0)))}" />
-        </div>
-      </div>
-
-      <div class="row space" style="margin-top:14px">
-        <button class="btn" id="cancelModalBtn" type="button">Cancel</button>
-        <button class="btn primary" id="savePT" type="button">Save</button>
-      </div>
-    </div>
-  `);
-
-  const btn = document.getElementById("savePT");
-  if(btn) btn.onclick = ()=>{
-    t.name = (document.getElementById("ptName")?.value || "").trim() || t.name;
-    t.phase = (document.getElementById("ptPhase")?.value || "").trim();
-    t.trade = (document.getElementById("ptTrade")?.value || "").trim();
-    t.plannedStart = (document.getElementById("ptStart")?.value || "").trim();
-    t.plannedEnd = (document.getElementById("ptEnd")?.value || "").trim();
-    t.totalDays = Math.max(0, Number(document.getElementById("ptDays")?.value || 0));
-    t.updatedAt = new Date().toISOString();
-    saveProgrammeTasksForProject(projectId, tasks);
-    closeModal();
-    refreshProgrammeTab(projectId);
-  };
-}
-
 function computeCustomProgrammeSchedule(p){
   ensureCustomProgramme(p);
   const sections = p.customProgramme;
@@ -1262,8 +1073,9 @@ function customProgrammeGantt(schedule, projectId){
         <div class="gBar"><div class="bar" style="width:${barW}%"></div></div>
         <div class="gDur sub">${dur}d</div>
         <div class="gAct noPrint">
-          <button class="btn ghost sm" type="button" data-cprog-to-task="${escapeAttr(s.id)}" data-proj="${escapeAttr(projectId||"")}">To task</button>
-          <button class="btn ghost sm" type="button" data-cprog-edit="${escapeAttr(s.id)}" data-proj="${escapeAttr(projectId||"")}">Edit</button>
+          <button class="btn ghost sm" type="button" data-cprog-to-task="${escapeAttr(s.id)}" data-cprog-project="${escapeAttr(projectId||"")}">To task</button>
+          <button class="btn ghost sm" type="button" data-cprog-edit="${escapeAttr(s.id)}" data-cprog-project="${escapeAttr(projectId||"")}">Edit</button>
+          <button class="btn ghost sm" type="button" data-cprog-del="${escapeAttr(s.id)}" data-cprog-project="${escapeAttr(projectId||"")}">Delete</button>
         </div>
       </div>
     `;
@@ -1272,46 +1084,38 @@ function customProgrammeGantt(schedule, projectId){
 }
 
 
-
 function renderCustomProgrammeEditor(p){
   ensureCustomProgramme(p);
   const wrap = document.getElementById("customEditor");
   if(!wrap) return;
 
-  // Sort custom programme by computed planned start (date order)
-  try{ sortCustomProgrammeByStart(p); }catch(e){}
-
-  const schedule = computeCustomProgrammeSchedule(p) || [];
-  if(!schedule.length){
-    wrap.innerHTML = `<div class="sub">No custom sections yet. Click <b>Add section</b>.</div>`;
-    return;
-  }
-
-  wrap.innerHTML = schedule.map((s,idx)=>`
-    <div class="row" style="gap:10px; flex-wrap:wrap; align-items:center; margin:10px 0; padding:10px; border:1px solid var(--border); border-radius:14px">
-      <div style="min-width:240px; flex:2">
+  const schedule = computeCustomProgrammeSchedule(p);
+  const rows = (schedule||[]).slice().sort((a,b)=>(a.plannedStart||"").localeCompare(b.plannedStart||"")).map((s,idx)=>`
+    <div class="row space" style="gap:12px; padding:10px; border:1px solid var(--border); border-radius:14px; margin:10px 0">
+      <div style="min-width:220px; flex:2">
         <div style="font-weight:800">${escapeHtml(s.title||("Section "+(idx+1)))}</div>
-        <div class="smallmuted">${s.manualStart ? "Manual start" : "Auto consecutive"} • ${escapeHtml((s.plannedStart||"—"))} → ${escapeHtml((s.plannedEnd||"—"))}</div>
+        <div class="sub">${escapeHtml(s.plannedStart||"")} → ${escapeHtml(s.plannedEnd||"")} • ${Number(s.days||1)}d</div>
       </div>
-      <div class="sub" style="min-width:70px"><b>${Number(s.days||1)}d</b></div>
-      <div class="row" style="gap:8px; margin-left:auto" class="noPrint">
-        <button class="btn ghost sm" type="button" data-cprog-to-task="${escapeAttr(s.id)}" data-proj="${escapeAttr(p.id)}">To task</button>
-        <button class="btn ghost sm" type="button" data-cprog-edit="${escapeAttr(s.id)}" data-proj="${escapeAttr(p.id)}">Edit</button>
-        <button class="btn ghost sm danger" type="button" data-cprog-del="${escapeAttr(s.id)}" data-proj="${escapeAttr(p.id)}">Delete</button>
+      <div class="row" style="gap:8px; flex-wrap:wrap">
+        <button class="btn ghost sm" type="button" data-cprog-to-task="${escapeAttr(s.id)}" data-cprog-project="${escapeAttr(p.id)}">To task</button>
+        <button class="btn ghost sm" type="button" data-cprog-edit="${escapeAttr(s.id)}" data-cprog-project="${escapeAttr(p.id)}">Edit</button>
+        <button class="btn ghost sm" type="button" data-cprog-del="${escapeAttr(s.id)}" data-cprog-project="${escapeAttr(p.id)}">Delete</button>
       </div>
     </div>
   `).join("");
-}
 
+  wrap.innerHTML = rows || `<div class="sub">No custom sections yet. Click <b>Add section</b>.</div>`;
+}
 
 function programmeGantt(tasks, projectId){
   // hide removed tasks from the active programme view
   tasks = (tasks||[]).filter(t=>!isProgrammeTaskRemoved(t));
   const phases = {};
   tasks.forEach(t=>{ (phases[t.phase] = phases[t.phase] || []).push(t); });
-  const phaseKeys = Object.keys(phases);
+  const phaseKeys = Object.keys(phases).sort();
+
   const rows = phaseKeys.map(ph=>{
-    const list = phases[ph].sort((a,b)=>(a.plannedStart||"").localeCompare(b.plannedStart||""));
+    const list = (phases[ph]||[]).slice().sort((a,b)=>(a.plannedStart||"").localeCompare(b.plannedStart||""));
     const inner = list.map(t=>{
       const crit = t.isCritical ? "badge danger" : "badge";
       const dur = Number(t.totalDays||0);
@@ -1336,7 +1140,7 @@ function programmeGantt(tasks, projectId){
             <button class="btn ghost sm" type="button"
               data-prog-edit="${escapeAttr(t.id)}"
               data-prog-project="${escapeAttr(projectId||"")}">Edit</button>
-            <button class="btn ghost sm danger" type="button"
+            <button class="btn ghost sm" type="button"
               data-prog-remove="${escapeAttr(t.id)}"
               data-prog-project="${escapeAttr(projectId||"")}">Remove</button>
           </div>
@@ -2645,6 +2449,169 @@ function openModal(html){
     if(e && e.target && e.target.id==="modalBack") closeModal();
   };
 }
+
+// =============================
+// Programme modals & helpers
+// =============================
+function openProgrammeSectionModal(projectId, sectionId=null){
+  const p = projectById(projectId);
+  if(!p) return;
+  ensureCustomProgramme(p);
+  const isEdit = !!sectionId;
+  const s = isEdit ? (p.customProgramme||[]).find(x=>String(x.id)===String(sectionId)) : null;
+  const seed = s ? { ...s } : { id: uid(), title:"Section", days:3, manualStart:false, startDate:"" };
+
+  openModal(`
+    <div class="modal">
+      <div class="modalCard">
+        <div class="row space" style="align-items:center">
+          <div>
+            <div class="h2">${isEdit ? "Edit programme section" : "Add programme section"}</div>
+            <div class="sub">Custom programme section for <b>${escapeHtml(p.name||"project")}</b>.</div>
+          </div>
+          <button class="iconBtn" id="closeModalBtn" type="button">✕</button>
+        </div>
+
+        <div style="margin-top:14px; display:grid; gap:12px">
+          <div>
+            <label class="sub">Title</label>
+            <input class="input" id="cprogTitle" value="${escapeAttr(seed.title||"")}" />
+          </div>
+          <div class="row" style="gap:12px; flex-wrap:wrap">
+            <div style="min-width:140px">
+              <label class="sub">Days</label>
+              <input class="input" id="cprogDays" type="number" min="1" step="1" value="${escapeAttr(String(Number(seed.days||1)))}" />
+            </div>
+            <div style="min-width:210px">
+              <label class="sub">Start date (optional)</label>
+              <input class="input" id="cprogStart" type="date" value="${escapeAttr(seed.manualStart ? (seed.startDate||"") : "")}" />
+              <div class="sub" style="margin-top:6px">Leave blank to run consecutively.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="row space" style="margin-top:16px; gap:10px">
+          <button class="btn" id="cancelModalBtn" type="button">Cancel</button>
+          <button class="btn primary" id="saveCprogBtn" type="button">${isEdit ? "Save changes" : "Add section"}</button>
+        </div>
+      </div>
+    </div>
+  `);
+
+  $("#saveCprogBtn").onclick = ()=>{
+    const title = ($("#cprogTitle").value||"").trim() || "Section";
+    let days = Number(($("#cprogDays").value||"").trim() || 1);
+    if(!isFinite(days) || days<1) days = 1;
+    const start = ($("#cprogStart").value||"").trim();
+    const now = new Date().toISOString();
+
+    const next = {
+      ...seed,
+      title,
+      days,
+      manualStart: !!start,
+      startDate: start,
+      updatedAt: now
+    };
+    if(!isEdit){
+      next.createdAt = now;
+      p.customProgramme.push(next);
+    }else{
+      p.customProgramme = (p.customProgramme||[]).map(x=>String(x.id)===String(sectionId) ? next : x);
+    }
+    saveProject(p);
+    closeModal();
+    render();
+  };
+}
+
+function openProgrammeTaskModal(projectId, taskId){
+  const p = projectById(projectId);
+  const t = aliveArr(state.programmeTasks).find(x=>String(x.id)===String(taskId));
+  if(!p || !t) return;
+  openModal(`
+    <div class="modal">
+      <div class="modalCard">
+        <div class="row space" style="align-items:center">
+          <div>
+            <div class="h2">Edit programme task</div>
+            <div class="sub"><b>${escapeHtml(p.name||"project")}</b></div>
+          </div>
+          <button class="iconBtn" id="closeModalBtn" type="button">✕</button>
+        </div>
+
+        <div style="margin-top:14px; display:grid; gap:12px">
+          <div>
+            <label class="sub">Task name</label>
+            <input class="input" id="ptName" value="${escapeAttr(t.name||"")}" />
+          </div>
+          <div class="row" style="gap:12px; flex-wrap:wrap">
+            <div style="min-width:180px">
+              <label class="sub">Phase</label>
+              <input class="input" id="ptPhase" value="${escapeAttr(t.phase||"")}" />
+            </div>
+            <div style="min-width:180px">
+              <label class="sub">Trade</label>
+              <input class="input" id="ptTrade" value="${escapeAttr(t.trade||"")}" />
+            </div>
+            <div style="min-width:120px">
+              <label class="sub">Days</label>
+              <input class="input" id="ptDays" type="number" min="0" step="1" value="${escapeAttr(String(Number(t.totalDays||0)))}" />
+            </div>
+          </div>
+          <div class="row" style="gap:12px; flex-wrap:wrap">
+            <div style="min-width:200px">
+              <label class="sub">Planned start</label>
+              <input class="input" id="ptStart" type="date" value="${escapeAttr((t.plannedStart||t.startDate||"").slice(0,10))}" />
+            </div>
+            <div style="min-width:200px">
+              <label class="sub">Planned end</label>
+              <input class="input" id="ptEnd" type="date" value="${escapeAttr((t.plannedEnd||t.dueDate||"").slice(0,10))}" />
+            </div>
+          </div>
+        </div>
+
+        <div class="row space" style="margin-top:16px; gap:10px">
+          <button class="btn" id="cancelModalBtn" type="button">Cancel</button>
+          <button class="btn primary" id="savePtBtn" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+  `);
+
+  $("#savePtBtn").onclick = ()=>{
+    const now = new Date().toISOString();
+    const name = ($("#ptName").value||"").trim() || (t.name||"Task");
+    const phase = ($("#ptPhase").value||"").trim();
+    const trade = ($("#ptTrade").value||"").trim();
+    let totalDays = Number(($("#ptDays").value||"").trim()||0);
+    if(!isFinite(totalDays) || totalDays<0) totalDays = 0;
+    const plannedStart = ($("#ptStart").value||"").trim();
+    const plannedEnd = ($("#ptEnd").value||"").trim();
+
+    const next = { ...t, name, phase, trade, totalDays, plannedStart, plannedEnd, updatedAt: now };
+    state.programmeTasks = upsertById(state.programmeTasks, next);
+    saveState(state);
+    closeModal();
+    render();
+  };
+}
+
+function programmeItemToTask(projectId, title, plannedStart, plannedEnd, detailsExtra=""){
+  const p = projectById(projectId);
+  if(!p) return;
+  const details = [
+    detailsExtra ? detailsExtra : "",
+    plannedStart ? ("Planned start: "+plannedStart) : "",
+  ].filter(Boolean).join("\n");
+  openTaskForm({
+    projectId,
+    title: title || "Task",
+    dueDate: plannedEnd || "",
+    details
+  });
+}
+
 
 function openModalLocked(html){
   openModal(html);
@@ -4341,19 +4308,9 @@ render(); try{renderDeletedProjectsUI();}catch(e){}
     };
 
     if($("#customAddSection")) $("#customAddSection").onclick = ()=>{
-      ensureCustomProgramme(p);
       p.programmeMode = "custom";
-      p.customProgramme.push({
-        id: uid(),
-        title: "Section",
-        days: 3,
-        startDate: "",
-        manualStart: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
       saveProject(p);
-      render();
+      openProgrammeSectionModal(p.id, null);
     };
 
     if($("#customAutoFix")) $("#customAutoFix").onclick = ()=>{
@@ -4368,6 +4325,44 @@ render(); try{renderDeletedProjectsUI();}catch(e){}
       saveProject(p);
       render();
     };
+
+    // Bind programme actions (template + custom)
+    // Template programme tasks
+    $$("#tabContent [data-prog-to-task]").forEach(b=> b.onclick = ()=>{
+      const tid = b.getAttribute("data-prog-to-task");
+      const pid = b.getAttribute("data-prog-project") || p.id;
+      const t = aliveArr(state.programmeTasks).find(x=>String(x.id)===String(tid));
+      if(!t) return;
+      programmeItemToTask(pid, (t.name||t.title||"Task"), (t.plannedStart||t.startDate||""), (t.plannedEnd||t.dueDate||""), [t.phase?("Phase: "+t.phase):"", t.trade?("Trade: "+t.trade):""].filter(Boolean).join("\n"));
+    });
+    $$("#tabContent [data-prog-edit]").forEach(b=> b.onclick = ()=>{
+      const tid = b.getAttribute("data-prog-edit");
+      const pid = b.getAttribute("data-prog-project") || p.id;
+      openProgrammeTaskModal(pid, tid);
+    });
+
+    // Custom programme sections
+    $$("#tabContent [data-cprog-edit]").forEach(b=> b.onclick = ()=>{
+      const sid = b.getAttribute("data-cprog-edit");
+      const pid = b.getAttribute("data-cprog-project") || p.id;
+      openProgrammeSectionModal(pid, sid);
+    });
+    $$("#tabContent [data-cprog-del]").forEach(b=> b.onclick = ()=>{
+      const sid = b.getAttribute("data-cprog-del");
+      if(!sid) return;
+      if(!confirm("Delete this programme section?")) return;
+      p.customProgramme = (p.customProgramme||[]).filter(x=>String(x.id)!==String(sid));
+      saveProject(p);
+      render();
+    });
+    $$("#tabContent [data-cprog-to-task]").forEach(b=> b.onclick = ()=>{
+      const sid = b.getAttribute("data-cprog-to-task");
+      const pid = b.getAttribute("data-cprog-project") || p.id;
+      const schedule = computeCustomProgrammeSchedule(p);
+      const s = (schedule||[]).find(x=>String(x.id)===String(sid));
+      if(!s) return;
+      programmeItemToTask(pid, (s.title||"Task"), (s.plannedStart||""), (s.plannedEnd||""), "Source: Programme section");
+    });
 
     refreshProgrammeUI();
   }
@@ -6084,10 +6079,6 @@ function runReportUI(projectId, from=null, to=null, opts=null){
   const programmeTasks = sections.programme ? aliveArr(state.programmeTasks).filter(t=>t.projectId===projectId && isAlive(t)) : [];
   const programmeStats = sections.programme ? aliveArr(state.programmeHistoryStats).filter(s=>s.projectId===projectId && isAlive(s)).filter(s=> inRange(s.date||"") || allTime) : [];
 
-  // Programme schedule (template + custom)
-  const programmeTplSchedule = sections.programme ? (programmeTasksForProject(projectId)||[]).filter(t=>t && !isProgrammeTaskRemoved(t)).sort((a,b)=>(a.plannedStart||"").localeCompare(b.plannedStart||"")) : [];
-  const programmeCustomSchedule = sections.programme ? (computeCustomProgrammeSchedule(p)||[]).slice().sort((a,b)=>(a.plannedStart||"").localeCompare(b.plannedStart||"")) : [];
-
   // Equipment/Fleet logs (best-effort - schema varies)
   const equipment = sections.equipment ? aliveArr(state.equipment).filter(e=> (e.projectId===projectId || e.assignedProjectId===projectId) && isAlive(e)) : [];
   const equipmentLogs = sections.equipment ? aliveArr(state.equipmentLogs).filter(l=> l.projectId===projectId && isAlive(l)).filter(l=> inRange(l.date||l.createdAt||"") || allTime) : [];
@@ -6275,68 +6266,43 @@ const activityDetailsText = (a)=>{
         <h2>Leads</h2>
         ${leads.length ? `
           <table>
-            <thead><tr><th>Date</th><th>Name</th><th>Staif(sections.programme){
+            <thead><tr><th>Date</th><th>Name</th><th>Stage</th><th>Notes</th></tr></thead>
+            <tbody>
+              ${leads.map(l=>`<tr><td>${escapeHtml(l.date?dateFmt(l.date):"")}</td><td>${escapeHtml(l.name||"")}</td><td>${escapeHtml(l.stage||l.status||"")}</td><td>${escapeHtml((l.notes||l.summary||"").slice(0,180))}</td></tr>`).join("")}
+            </tbody>
+          </table>` : `<div class="sub">No leads${allTime ? "." : " in range."}</div>`}
+      </div>
+    `);
+  }
+
+  if(sections.programme){
     blocks.push(`
       <div class="card">
         <h2>Programme</h2>
-
-        ${(programmeTplSchedule && programmeTplSchedule.length) ? `
-          <div class="sub" style="margin-bottom:6px">Template programme tasks</div>
-          <table>
-            <thead><tr><th>Task</th><th>Phase</th><th>Trade</th><th>Start</th><th>End</th><th>Days</th></tr></thead>
-            <tbody>
-              ${programmeTplSchedule.map(t=>`<tr>
-                <td>${escapeHtml(t.name||"")}</td>
-                <td>${escapeHtml(t.phase||"")}</td>
-                <td>${escapeHtml(t.trade||"")}</td>
-                <td>${escapeHtml(t.plannedStart||"")}</td>
-                <td>${escapeHtml(t.plannedEnd||"")}</td>
-                <td>${escapeHtml(String(Number(t.totalDays||0)||""))}</td>
-              </tr>`).join("")}
-            </tbody>
-          </table>
-        ` : `<div class="sub">No template programme generated for this project.</div>`}
-
-        ${(programmeCustomSchedule && programmeCustomSchedule.length) ? `
-          <hr/>
-          <div class="sub" style="margin-bottom:6px">Custom programme sections</div>
-          <table>
-            <thead><tr><th>Section</th><th>Start</th><th>End</th><th>Days</th></tr></thead>
-            <tbody>
-              ${programmeCustomSchedule.map(s=>`<tr>
-                <td>${escapeHtml(s.title||"")}</td>
-                <td>${escapeHtml(s.plannedStart||"")}</td>
-                <td>${escapeHtml(s.plannedEnd||"")}</td>
-                <td>${escapeHtml(String(Number(s.days||1)))}</td>
-              </tr>`).join("")}
-            </tbody>
-          </table>
-        ` : ``}
-
-        ${(programmeTasks && programmeTasks.length) ? `
-          <hr/>
-          <div class="sub" style="margin-bottom:6px">Saved programme tasks (status)</div>
+        <div class="sub" style="margin:6px 0 10px 0">Programme includes template tasks and any custom programme sections.</div>
+        ${(()=>{
+          // Custom programme sections (from project)
+          try{
+            ensureCustomProgramme(p);
+            const sched = computeCustomProgrammeSchedule(p);
+            const rows = (sched||[]).slice().sort((a,b)=>(a.plannedStart||"").localeCompare(b.plannedStart||"")).map(s=>`<tr><td>${escapeHtml(s.title||"Section")}</td><td>Section</td><td></td><td>${escapeHtml(s.plannedStart||"")}</td><td>${escapeHtml(s.plannedEnd||"")}</td></tr>`).join("");
+            return rows ? `
+              <hr/>
+              <div class="sub">Custom programme (sections)</div>
+              <table>
+                <thead><tr><th>Item</th><th>Type</th><th>Status</th><th>Start</th><th>Due</th></tr></thead>
+                <tbody>${rows}</tbody>
+              </table>` : ``;
+          }catch(e){ return ``; }
+        })()}
+        ${programmeTasks.length ? `
           <table>
             <thead><tr><th>Task</th><th>Phase</th><th>Status</th><th>Start</th><th>Due</th></tr></thead>
             <tbody>
               ${programmeTasks.map(t=>`<tr><td>${escapeHtml(t.name||t.title||"")}</td><td>${escapeHtml(t.phase||"")}</td><td>${escapeHtml(t.status||"")}</td><td>${t.startDate?escapeHtml(dateFmt(t.startDate)):""}</td><td>${t.dueDate?escapeHtml(dateFmt(t.dueDate)):""}</td></tr>`).join("")}
             </tbody>
-          </table>` : ``}
-
+          </table>` : `<div class="sub">No programme tasks saved.</div>`}
         ${programmeStats.length ? `
-          <hr/>
-          <div class="sub">History / snapshots</div>
-          <table>
-            <thead><tr><th>Date</th><th>Summary</th></tr></thead>
-            <tbody>
-              ${programmeStats.map(s=>`<tr><td>${escapeHtml(s.date?dateFmt(s.date):"")}</td><td>${escapeHtml((s.summary||JSON.stringify(s)).slice(0,220))}</td></tr>`).join("")}
-            </tbody>
-          </table>` : ``}
-      </div>
-    `);
-  }
-
-length ? `
           <hr/>
           <div class="sub">History / snapshots</div>
           <table>
@@ -7682,82 +7648,29 @@ function renderRemovedProgrammeTasks(projectId){
 }
 
 document.addEventListener("click", (ev)=>{
-  const btn = ev.target && (ev.target.closest ? ev.target.closest("[data-prog-remove],[data-prog-restore],[data-prog-to-task],[data-prog-edit],[data-cprog-to-task],[data-cprog-edit],[data-cprog-del]") : null);
+  const btn = ev.target && (ev.target.closest ? ev.target.closest("[data-prog-remove],[data-prog-restore]") : null);
   if(!btn) return;
-
-  // Programme template tasks (stored in programmeTasks store)
-  if(btn.hasAttribute("data-prog-to-task") || btn.hasAttribute("data-prog-edit") || btn.hasAttribute("data-prog-remove") || btn.hasAttribute("data-prog-restore")){
-    ev.preventDefault();
-    const projectId = btn.getAttribute("data-prog-project");
-    const id = btn.getAttribute("data-prog-remove") || btn.getAttribute("data-prog-restore") || btn.getAttribute("data-prog-to-task") || btn.getAttribute("data-prog-edit");
-    if(!id || !projectId) return;
-
-    if(btn.hasAttribute("data-prog-to-task")){
-      try{
-        const tasks = getProgrammeTasksForProject(projectId) || [];
-        const t = tasks.find(x=>String(x.id)===String(id));
-        if(!t) return;
-        convertProgrammeItemToTask(projectId, t);
-      }catch(e){ console.warn(e); alert("Could not create task from programme item."); }
-      return;
+  ev.preventDefault();
+  const id = btn.getAttribute("data-prog-remove") || btn.getAttribute("data-prog-restore");
+  const projectId = btn.getAttribute("data-prog-project");
+  if(!id || !projectId) return;
+  try{
+    const tasks = getProgrammeTasksForProject(projectId) || [];
+    const task = tasks.find(x=>String(x.id)===String(id));
+    if(!task) return;
+    if(btn.hasAttribute("data-prog-remove")){
+      if(!confirm("Remove this programme task from this job? You can restore it later.")) return;
+      markProgrammeTaskRemoved(task, true);
+    }else{
+      markProgrammeTaskRemoved(task, false);
     }
-
-    if(btn.hasAttribute("data-prog-edit")){
-      try{ openProgrammeTaskEditModal(projectId, id); }catch(e){ console.warn(e); alert("Could not open edit modal."); }
-      return;
-    }
-
-    // remove / restore
-    try{
-      const tasks = getProgrammeTasksForProject(projectId) || [];
-      const task = tasks.find(x=>String(x.id)===String(id));
-      if(!task) return;
-      if(btn.hasAttribute("data-prog-remove")){
-        if(!confirm("Remove this programme task from this job? You can restore it later.")) return;
-        markProgrammeTaskRemoved(task, true);
-      }else{
-        markProgrammeTaskRemoved(task, false);
-      }
-      saveProgrammeTasksForProject(projectId, tasks);
-      // refresh current view
-      refreshProgrammeTab(projectId);
-      renderRemovedProgrammeTasks(projectId);
-    }catch(e){
-      console.warn(e);
-      alert("Could not update programme task.");
-    }
-    return;
-  }
-
-  // Custom programme sections (stored in project.customProgramme)
-  if(btn.hasAttribute("data-cprog-to-task") || btn.hasAttribute("data-cprog-edit") || btn.hasAttribute("data-cprog-del")){
-    ev.preventDefault();
-    const projectId = btn.getAttribute("data-proj") || btn.getAttribute("data-prog-project");
-    const id = btn.getAttribute("data-cprog-to-task") || btn.getAttribute("data-cprog-edit") || btn.getAttribute("data-cprog-del");
-    if(!id || !projectId) return;
-    const p = projectById(projectId);
-    if(!p) return;
-    ensureCustomProgramme(p);
-    const schedule = computeCustomProgrammeSchedule(p) || [];
-    const item = schedule.find(x=>String(x.id)===String(id));
-    const raw = (p.customProgramme||[]).find(x=>String(x.id)===String(id));
-
-    if(btn.hasAttribute("data-cprog-to-task")){
-      if(!item && !raw) return;
-      convertProgrammeItemToTask(projectId, item || raw);
-      return;
-    }
-    if(btn.hasAttribute("data-cprog-edit")){
-      openCustomProgrammeModal(projectId, id);
-      return;
-    }
-    if(btn.hasAttribute("data-cprog-del")){
-      if(!confirm("Delete this programme section?")) return;
-      p.customProgramme = (p.customProgramme||[]).filter(x=>String(x.id)!==String(id));
-      saveProject(p);
-      render();
-      return;
-    }
+    saveProgrammeTasksForProject(projectId, tasks);
+    // refresh current view
+    refreshProgrammeTab(projectId);
+    renderRemovedProgrammeTasks(projectId);
+  }catch(e){
+    console.warn(e);
+    alert("Could not update programme task.");
   }
 });
 
